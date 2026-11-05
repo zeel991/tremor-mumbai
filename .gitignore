@@ -1,0 +1,13 @@
+# Foundry
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+# Node / web
+node_modules/
+.next/
+# env and keys
+.env
+*.env
+.cre/
+# OS
+.DS_Store
