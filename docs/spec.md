@@ -593,3 +593,19 @@ That is 15 EVM reads (at the limit) and 2 HTTP calls.
 4. The v1.0.2 Aqua-mode token flow for `tokenIn`: confirm against `SwapVM.sol:217-287` in a fork test before building the frontend.
 5. That CRE `filterLogs` returns `blockNumber` per log, needed for timestamp interpolation. If it also returns `blockTimestamp`, drop step 3 of §8.
 6. That the v4 `Swap` event's sign (swapper-perspective) shows up as expected in a fork test.
+
+## 17. Build notes: where the implementation differs from this spec
+
+Recorded during the build, Fri 6 Nov 2026.
+
+| Item | Spec said | Built | Why |
+|---|---|---|---|
+| uniswap-hooks pin | tag `v1.3.0` | commit `b5f10574` (package 1.3.0; git tag `v1.3.0-rc.0`) | No `v1.3.0` tag exists; this is the commit the research read |
+| Volume (§7.5) | `|a1|·P_ETH` | `|a0|·P_token0` | Matches `data/markout_pool.py`, which the backtest and K = 0.5 were calibrated on; already updated in §7.5 |
+| Premium validity (§6.7) | until the next epoch's end | `block.timestamp + 7 days + GRACE` when the epoch closes | Same in live operation; lets a historical backfill set a premium that is live on the fork |
+| Quote taker traits | – | Quotes also need the 22-byte traits header (flags), not `0x` | `SwapVM.sol:120` reads it first (found by the web build) |
+| Pricing rounding (§7.4) | ceil(sum) / floor(difference) | Implemented as one rounding of the exact value; buy/sell inverses use full-precision roots | The reference model found the first version off by up to 499 units |
+| Phase change (§6.2) | `checkpoint` reverts | `finalize` also reverts `PhaseChanged` unless a round ≥ t1 was already seen in the window's phase | Never settle on partial data |
+| Mint after t1 | – | Reverts `TooLate` | The error name was wrong |
+| JIT penalty | optional | Not built; drip only | Cut for time (cut order #1). The residual risk is stated in the README |
+| CRE simulation | gate by hour 2 | Not run | Needs `cre login` (a human step) and an archive-capable Anvil upstream. Demo F2 delivers measured reports through the forwarder by impersonation, and is labelled that way |

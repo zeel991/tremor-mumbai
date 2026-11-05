@@ -30,6 +30,12 @@ The method behind these numbers: every swap valued at Binance 1-minute prices ([
 
 All of these ran on an **Anvil fork of Ethereum mainnet**, against the deployed contracts.
 
+**Unit and reference tests** (`forge test --match-path 'test/unit/*'`, 51/51 pass):
+- `reference/pricing_reference.py` is an independent exact-rational model written from the spec. It generated 10,508 pricing vectors (`contracts/test/vectors/`), and `Pricing` matches every one exactly.
+- Realized variance matches an 80-digit `ln` reference to within 1 wei per term.
+- Invariant fuzzing (mint, burn, finalize, redeem) keeps `WETH ≥ Σ locked` and keeps every claim redeemable.
+- The reference model found five pricing bugs, all now fixed: under-filled buys, over-taken sells, and three rounding errors.
+
 **Fork tests** (`forge test --match-path 'test/fork/*' -vv`, 7/7 pass):
 
 | Gate | Result |

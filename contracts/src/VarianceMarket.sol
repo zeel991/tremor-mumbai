@@ -123,7 +123,7 @@ contract VarianceMarket is IVarianceMarket, ReentrancyGuard {
     function mintSet(uint256 id, uint256 n) external nonReentrant {
         Window storage w = _get(id);
         if (w.finalized) revert AlreadyFinalized();
-        if (!ALLOW_PAST_WINDOWS && block.timestamp >= w.t1) revert TooEarly();
+        if (!ALLOW_PAST_WINDOWS && block.timestamp >= w.t1) revert TooLate();
         uint256 wethIn = FPM.mulDivUp(n, w.S, WAD);
         weth.safeTransferFrom(msg.sender, address(this), wethIn);
         w.setsOutstanding += n;
@@ -188,6 +188,10 @@ contract VarianceMarket is IVarianceMarket, ReentrancyGuard {
         if (w.finalized) revert AlreadyFinalized();
         if (block.timestamp < w.t1 + FINALIZE_DELAY) revert TooEarly();
         if (!w.doneIngesting) {
+            // never settle on partial data: if the feed moved to a new phase before a round >= t1 was seen in the
+            // window's phase, the window stays unsettled (spec §6.2: never stitch phases; handle manually)
+            (uint80 latestId,,,,) = feed.latestRoundData();
+            if (uint16(latestId >> 64) != w.phaseId) revert PhaseChanged();
             // caught up only if the next round does not exist yet (a later round would have updatedAt > now >= t1)
             (bool ok,, uint64 nextUpdatedAt) = _round(w.lastRound + 1);
             if (ok && nextUpdatedAt != 0) revert TooEarly();

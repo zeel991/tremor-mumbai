@@ -39,6 +39,7 @@ interface IVarianceMarket {
     error NotFinalized();
     error AlreadyFinalized();
     error TooEarly();
+    error TooLate();
     error PhaseChanged();
     error BadRound(uint80 roundId);
     error NoQuote();
