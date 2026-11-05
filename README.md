@@ -46,14 +46,14 @@ All of these ran on an **Anvil fork of Ethereum mainnet**, against the deployed 
 | U1 | The hook fee equals `ceil(gross·pips/1e6)` on the unspecified currency, in both directions. A stale premium charges 0. Access control holds. `handleHookFees` buys LONG via Aqua. |
 | E2E | CRE reports set the premium (1,500 pips) → fees → cover bought (0.2035 WETH → 1.029 LONG) → Chainlink settlement → **1.029 WETH drip-donated to LPs** → the vault docks and settles. |
 
-**Demo run** (`demo/setup-fork.sh` then `demo/run-demo.sh`; every step printed a transaction hash):
+**Demo run** (`demo/setup-fork.sh` then `demo/run-demo.sh`, one pass on a fresh fork; every step printed a transaction hash):
 
 | Flow | Result |
 |---|---|
 | F2 | Three measured weeks (29 Sep, 6 Oct, 13 Oct 2025, from `data/`) delivered through the CRE forwarder: premium **0 → 1,121 → 3,000 pips**. The cap was hit after the week LPs lost $137,516. |
-| F3 | Swaps on the Tremor v4 pool built up 0.214 WETH + 90.1 UNI of hook-fee claims. |
-| F4 | `handleHookFees` bought **3.667 LONG** through `0x22`. A trader's `router.quote` of 1 WETH equalled their `router.swap` (4.9597 LONG). |
-| F5 | The Oct-2025 window settled from Chainlink, **3.667 WETH** went to LPs, and `drip` donated it through `PoolManager.donate`. |
+| F3 | Six swaps on the Tremor v4 pool built up 0.107 WETH + 45.2 UNI of hook-fee claims. |
+| F4 | `handleHookFees` redeemed the claims, converted the UNI and bought **1.232 LONG** through `0x22`. A trader's `router.quote` of 1 WETH equalled their `router.swap` (4.9597 LONG). |
+| F5 | The Oct-2025 window settled from 50 Chainlink rounds; LONG paid the full S. **1.232 WETH** went to `PoolManager.donate` for in-range LPs. |
 | F6 | The vault docked the Aqua strategy and redeemed its inventory. |
 
 **CRE:**
@@ -65,7 +65,7 @@ All of these ran on an **Anvil fork of Ethereum mainnet**, against the deployed 
 ## Run it
 
 ```bash
-git clone --recursive https://github.com/zeel991/tremor-mumbai.git && cd tremor-mumbai/contracts && npm install
+git clone https://github.com/zeel991/tremor-mumbai.git && cd tremor-mumbai && git submodule update --init && cd contracts && npm install
 ```
 
 ```bash
