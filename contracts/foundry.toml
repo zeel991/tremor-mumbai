@@ -1,0 +1,28 @@
+[profile.default]
+src = "src"
+test = "test"
+script = "script"
+out = "out"
+libs = ["lib", "node_modules"]
+solc_version = "0.8.30"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 700
+via_ir = true
+auto_detect_remappings = false
+fs_permissions = [{ access = "read", path = "./test/vectors" }, { access = "read-write", path = "./deployments" }]
+
+[profile.default.optimizer_details]
+yul = true
+# swap-vm v1.0.2 uses this yul step sequence; keep it so the router's size matches upstream
+yulDetails = { stackAllocation = true, optimizerSteps = "dhfoDgvulfnTUtnIf[xa[r]EscLMcCTUtTOntnfDIulLculVcul Tpeul]jmul[jul] VcTOcul jmul : fDnTOcmu" }
+
+[rpc_endpoints]
+mainnet = "${MAINNET_RPC_URL}"
+
+[fuzz]
+runs = 256
+
+[invariant]
+runs = 64
+depth = 32
