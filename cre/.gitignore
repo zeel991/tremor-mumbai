@@ -1,0 +1,7 @@
+# compiled workflow (cre workflow build)
+*.wasm
+# validate.ts scratch output
+scripts/.validate-out/
+# cre-compile intermediate
+.cre_build_tmp.js
+node_modules/

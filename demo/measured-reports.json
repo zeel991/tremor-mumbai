@@ -1,0 +1,39 @@
+{
+ "source": "data/ pipeline: every UNI/WETH 0.3% v3 swap valued at Binance 1m prices (same maths as the CRE workflow), one report per week",
+ "pool": "0x1d42064Fc4Beb5F8aAF85F4617AE8b3b5B8Bd801",
+ "reports": [
+  {
+   "week": "2025-09-29",
+   "fromBlock": 23464930,
+   "toBlock": 23515011,
+   "toTimestamp": 1759708799,
+   "lvrUsdWad": "11668753537193224000000",
+   "volumeUsdWad": "5201689703107479000000000",
+   "nSwaps": 1156,
+   "feesUsd": 15611.61,
+   "lpNetUsd": 3942.85
+  },
+  {
+   "week": "2025-10-06",
+   "fromBlock": 23515012,
+   "toBlock": 23565080,
+   "toTimestamp": 1760313599,
+   "lvrUsdWad": "172486489925997040000000",
+   "volumeUsdWad": "11363356536535379000000000",
+   "nSwaps": 1957,
+   "feesUsd": 34970.97,
+   "lpNetUsd": -137515.52
+  },
+  {
+   "week": "2025-10-13",
+   "fromBlock": 23565081,
+   "toBlock": 23615116,
+   "toTimestamp": 1760918399,
+   "lvrUsdWad": "8433384920415077000000",
+   "volumeUsdWad": "3288068287284890000000000",
+   "nSwaps": 1484,
+   "feesUsd": 9864.47,
+   "lpNetUsd": 1431.09
+  }
+ ]
+}

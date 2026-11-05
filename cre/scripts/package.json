@@ -1,0 +1,16 @@
+{
+  "name": "tremor-cre-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "validate": "bun run validate.ts",
+    "make-config": "bun run make-config.ts"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "typescript": "5.9.3"
+  }
+}

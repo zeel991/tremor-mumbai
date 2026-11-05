@@ -402,7 +402,7 @@ For each swap, with amounts from the **pool's** point of view:
 value_i  = a0·P_UNI(t) + a1·P_ETH(t)          # USD, P = Binance 1m kline interpolated to the swap's second
 fee_i    = feeRate · (positive leg value)
 lvr_i    = fee_i − value_i
-volume_i = |a1| · P_ETH(t)
+volume_i = |a0| · P_token0(t)   # token0 leg; matches data/markout_pool.py and the backtest calibration
 ```
 
 `LVR = Σ lvr_i`; `volume = Σ volume_i`.
