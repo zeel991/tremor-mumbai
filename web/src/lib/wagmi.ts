@@ -6,7 +6,8 @@ import { forkChain, RPC_URL } from "./chain";
 export const wagmiConfig = createConfig({
   chains: [forkChain],
   connectors: [injected()],
-  transports: { [forkChain.id]: http(RPC_URL) },
+  // forkChain is one chain per build (fork or Sepolia); its type is the union of both ids.
+  transports: { [forkChain.id]: http(RPC_URL) } as unknown as Record<1 | 11_155_111, ReturnType<typeof http>>,
   ssr: true,
 });
 

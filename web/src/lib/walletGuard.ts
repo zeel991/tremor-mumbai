@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useConnection, useWalletClient } from "wagmi";
 import type { EIP1193RequestFn, Hex } from "viem";
 import { publicClient } from "./wagmi";
-import { forkChain } from "./chain";
+import { forkChain, IS_FORK } from "./chain";
 
 export type WalletFork = { state: "none" } | { state: "checking" } | { state: "ok" } | { state: "wrong-chain"; chainId: number } | { state: "not-fork"; detail: string };
 
@@ -18,7 +18,8 @@ export function useWalletOnFork(): WalletFork {
   const { data: walletClient } = useWalletClient();
   const q = useQuery({
     queryKey: ["wallet-fork", address, chainId, !!walletClient],
-    enabled: status === "connected" && !!walletClient && chainId === forkChain.id,
+    // On a public chain the chain id is enough; the block-hash check only guards the local fork.
+    enabled: IS_FORK && status === "connected" && !!walletClient && chainId === forkChain.id,
     refetchInterval: 15_000,
     queryFn: async (): Promise<WalletFork> => {
       const request = walletClient!.request as unknown as EIP1193RequestFn;
@@ -33,6 +34,7 @@ export function useWalletOnFork(): WalletFork {
   });
   if (status !== "connected") return { state: "none" };
   if (chainId !== forkChain.id) return { state: "wrong-chain", chainId: chainId ?? 0 };
+  if (!IS_FORK) return { state: "ok" };
   if (q.data) return q.data;
   if (q.error) return { state: "not-fork", detail: String((q.error as Error).message ?? q.error) };
   return { state: "checking" };

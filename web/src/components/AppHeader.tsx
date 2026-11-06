@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useConnect, useConnection, useConnectors, useDisconnect, useSwitchChain } from "wagmi";
-import { forkChain } from "@/lib/chain";
+import { forkChain, IS_FORK, NETWORK_LABEL, RPC_URL } from "@/lib/chain";
 import { shortAddr } from "@/lib/format";
 import { useHeadBlock } from "@/lib/protocol";
 import { useWalletOnFork } from "@/lib/walletGuard";
@@ -54,17 +54,17 @@ function Network() {
   return (
     <span
       className="hidden items-center gap-2 rounded-full border border-line px-3 py-1 text-[12.5px] text-ink-2 sm:inline-flex"
-      title={ok ? "Reading a local fork of Ethereum mainnet at http://127.0.0.1:8545" : "The local fork at http://127.0.0.1:8545 is not responding"}
+      title={ok ? `Reading ${IS_FORK ? "a local fork of Ethereum mainnet" : "Sepolia"} at ${RPC_URL}` : `${RPC_URL} is not responding`}
     >
       <span className={`h-1.5 w-1.5 rounded-full ${ok ? "bg-[#6fd29b]" : "bg-loss"}`} />
       {ok ? (
         <>
-          Mainnet fork <span className="num text-ink-3">#{head.data!.toLocaleString("en-US")}</span>
+          {NETWORK_LABEL} <span className="num text-ink-3">#{head.data!.toLocaleString("en-US")}</span>
         </>
       ) : head.isLoading ? (
         "Connecting…"
       ) : (
-        "Fork offline"
+        IS_FORK ? "Fork offline" : "RPC offline"
       )}
     </span>
   );

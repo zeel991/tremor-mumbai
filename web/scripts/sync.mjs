@@ -26,7 +26,9 @@ const REQUIRED_KEYS = [
   "poolKey", "poolId", "windows", "epochOrigin", "forkBlock",
 ];
 // TREMOR_FORK_JSON overrides the path (e.g. point it at a non-existent file to test the "not deployed" UI).
-const forkPath = process.env.TREMOR_FORK_JSON ? resolve(process.env.TREMOR_FORK_JSON) : join(repoDir, "contracts", "deployments", "fork.json");
+// NEXT_PUBLIC_TREMOR_NETWORK=sepolia reads deployments/sepolia.json instead of fork.json.
+const network = process.env.NEXT_PUBLIC_TREMOR_NETWORK === "sepolia" ? "sepolia" : "fork";
+const forkPath = process.env.TREMOR_FORK_JSON ? resolve(process.env.TREMOR_FORK_JSON) : join(repoDir, "contracts", "deployments", `${network}.json`);
 let deployment;
 if (!existsSync(forkPath)) {
   deployment = { status: "missing", path: rel(forkPath), problems: ["file not found"], deployment: null };
@@ -34,7 +36,7 @@ if (!existsSync(forkPath)) {
   try {
     const parsed = JSON.parse(readFileSync(forkPath, "utf8"));
     const problems = REQUIRED_KEYS.filter((k) => parsed[k] === undefined || parsed[k] === null).map((k) => `missing key "${k}"`);
-    for (const w of ["live", "oct2025", "feb2025"]) {
+    for (const w of network === "fork" ? ["live", "oct2025", "feb2025"] : ["live"]) {
       if (parsed.windows && parsed.windows[w] === undefined) problems.push(`missing windows.${w}`);
     }
     deployment = { status: problems.length ? "incomplete" : "ok", path: rel(forkPath), problems, deployment: parsed };

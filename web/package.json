@@ -13,7 +13,9 @@
     "pretypecheck": "node scripts/sync.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "check:traits": "node scripts/check-taker-traits.mts"
+    "check:traits": "node scripts/check-taker-traits.mts",
+    "dev:sepolia": "NEXT_PUBLIC_TREMOR_NETWORK=sepolia npm run dev",
+    "build:sepolia": "NEXT_PUBLIC_TREMOR_NETWORK=sepolia npm run build"
   },
   "dependencies": {
     "@designcodeio/threeui": "1.2.0",

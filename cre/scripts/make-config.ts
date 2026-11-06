@@ -8,6 +8,9 @@
 //   --start-block   first block to measure if TremorReceiver.lastProcessedBlock() == 0 (default: forkBlock).
 //                   If the owner already called receiver.setStartBlock(), this value is never used.
 //   --max-to-block  never measure past this block (default: forkBlock).
+//   --network       fork (default) or sepolia. sepolia reads deployments/sepolia.json, writes
+//                   tremor-lvr/config.sepolia.json, uses the v4 source (the Tremor tUNI/WETH pool) and the
+//                   ethereum-testnet-sepolia chain. On a live chain pass --max-to-block <current head>.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -34,9 +37,12 @@ const intOpt = (name: string): number | undefined => {
 	return n
 }
 
-const deploymentPath = resolve(opt('deployment') ?? resolve(creDir, '../contracts/deployments/fork.json'))
-const outPath = resolve(opt('out') ?? resolve(creDir, 'tremor-lvr/config.fork.json'))
-const sourceKind = opt('source') ?? 'v3'
+const network = opt('network') ?? 'fork'
+if (network !== 'fork' && network !== 'sepolia') throw new Error('--network must be fork or sepolia')
+const sepolia = network === 'sepolia'
+const deploymentPath = resolve(opt('deployment') ?? resolve(creDir, `../contracts/deployments/${network}.json`))
+const outPath = resolve(opt('out') ?? resolve(creDir, `tremor-lvr/config.${network}.json`))
+const sourceKind = sepolia ? 'v4' : (opt('source') ?? 'v3')
 if (sourceKind !== 'v3' && sourceKind !== 'v4') throw new Error('--source must be v3 or v4')
 
 if (!existsSync(deploymentPath)) {
@@ -57,15 +63,19 @@ const addr = (k: string): string => {
 }
 const eq = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 
-if (Number(need('chainId')) !== 1) throw new Error(`expected chainId 1 (mainnet fork), got ${d.chainId}`)
+const wantChain = sepolia ? 11155111 : 1
+if (Number(need('chainId')) !== wantChain) throw new Error(`expected chainId ${wantChain}, got ${d.chainId}`)
 const forkBlock = Number(need('forkBlock'))
 if (!Number.isSafeInteger(forkBlock) || forkBlock <= 0) throw new Error(`bad forkBlock ${d.forkBlock}`)
 
 const receiver = addr('receiver')
 const multicall3 = isAddr(d.multicall3) ? d.multicall3 : MULTICALL3
 if (!eq(multicall3, MULTICALL3)) console.warn(`warning: fork.json multicall3 ${multicall3} != canonical ${MULTICALL3}`)
-if (isAddr(d.uni) && !eq(d.uni, UNI)) throw new Error(`fork.json uni ${d.uni} != ${UNI}`)
-if (isAddr(d.weth) && !eq(d.weth, WETH)) throw new Error(`fork.json weth ${d.weth} != ${WETH}`)
+// On Sepolia the pool is test UNI / Sepolia WETH; both are priced with Binance UNIUSDT / ETHUSDT.
+const uniAddr = sepolia ? addr('uni') : UNI
+const wethAddr = sepolia ? addr('weth') : WETH
+if (isAddr(d.uni) && !eq(d.uni, uniAddr)) throw new Error(`deployment uni ${d.uni} != ${uniAddr}`)
+if (isAddr(d.weth) && !eq(d.weth, wethAddr)) throw new Error(`deployment weth ${d.weth} != ${wethAddr}`)
 
 // UNI/WETH: token0 = UNI (18 dec), token1 = WETH (18 dec), priced by Binance UNIUSDT / ETHUSDT
 const tokens = { klineSymbol0: 'UNIUSDT', klineSymbol1: 'ETHUSDT', decimals0: 18, decimals1: 18 }
@@ -76,12 +86,12 @@ if (sourceKind === 'v3') {
 	if (!eq(pool, V3_POOL)) console.warn(`warning: refV3Pool ${pool} != spec §4 pool ${V3_POOL}`)
 	source = { kind: 'v3', pool, feePips: 3000, ...tokens }
 } else {
-	const poolManager = isAddr(d.poolManager) ? d.poolManager : POOL_MANAGER
+	const poolManager = sepolia ? addr('poolManager') : isAddr(d.poolManager) ? d.poolManager : POOL_MANAGER
 	const poolId = need('poolId')
 	if (typeof poolId !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(poolId)) throw new Error(`bad poolId ${poolId}`)
 	const pk = d.poolKey ?? {}
-	if (isAddr(pk.currency0) && !eq(pk.currency0, UNI)) throw new Error(`poolKey.currency0 ${pk.currency0} is not UNI`)
-	if (isAddr(pk.currency1) && !eq(pk.currency1, WETH)) throw new Error(`poolKey.currency1 ${pk.currency1} is not WETH`)
+	if (isAddr(pk.currency0) && !eq(pk.currency0, uniAddr)) throw new Error(`poolKey.currency0 ${pk.currency0} is not UNI`)
+	if (isAddr(pk.currency1) && !eq(pk.currency1, wethAddr)) throw new Error(`poolKey.currency1 ${pk.currency1} is not WETH`)
 	source = { kind: 'v4', poolManager, poolId, ...tokens }
 }
 
@@ -90,8 +100,8 @@ if (blocksPerRun < 1 || blocksPerRun > 1200) throw new Error('--blocks-per-run m
 
 const config = {
 	schedule: '0 0 * * * *',
-	chainSelectorName: 'ethereum-mainnet',
-	isTestnet: false,
+	chainSelectorName: sepolia ? 'ethereum-testnet-sepolia' : 'ethereum-mainnet',
+	isTestnet: sepolia,
 	receiver,
 	multicall3,
 	gasLimit: '5000000', // epoch close also calls hook.setPremium + market.checkpoint(…, 64); CRE cap is 10M

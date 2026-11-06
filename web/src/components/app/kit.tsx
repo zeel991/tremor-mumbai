@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { formatUnits } from "viem";
+import { txUrl } from "@/lib/chain";
 
 /* ---- formatting ------------------------------------------------------------------------- */
 
@@ -144,6 +145,21 @@ export function CopyButton({ value, label }: { value: string; label?: string }) 
       {label ?? `${value.slice(0, 6)}…${value.slice(-4)}`}
       <span className="text-[11px] text-ink-3">{done ? "copied" : "copy"}</span>
     </button>
+  );
+}
+
+/** Transaction hash: opens the block explorer when there is one, and can be copied. */
+export function TxLink({ hash }: { hash: string }) {
+  const url = txUrl(hash);
+  return (
+    <span className="inline-flex items-center gap-1">
+      {url && (
+        <a href={url} target="_blank" rel="noreferrer" className="rounded-md px-1.5 py-0.5 font-mono text-[12px] text-ink-2 underline-offset-2 hover:bg-hover hover:text-ink hover:underline" title={hash}>
+          {hash.slice(0, 6)}…{hash.slice(-4)} ↗
+        </a>
+      )}
+      {!url && <CopyButton value={hash} />}
+    </span>
   );
 }
 

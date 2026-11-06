@@ -1,8 +1,9 @@
 import { getAddress, isAddress, type Address, type Hex } from "viem";
 import generated from "@/generated/deployment.json";
+import { forkChain } from "./chain";
 
 export type WindowKey = "live" | "oct2025" | "feb2025";
-export const WINDOW_KEYS: WindowKey[] = ["live", "oct2025", "feb2025"];
+const ALL_WINDOW_KEYS: WindowKey[] = ["live", "oct2025", "feb2025"];
 export const WINDOW_LABELS: Record<WindowKey, string> = {
   live: "Live week",
   oct2025: "6 Oct 2025 (demo)",
@@ -70,14 +71,13 @@ function parse(raw: Raw): { d: Deployment; problems: string[] } {
       hooks: addr(pk.hooks, "poolKey.hooks", p),
     },
     poolId: (typeof raw.poolId === "string" ? raw.poolId : "0x") as Hex,
-    windows: {
-      live: big(w.live, "windows.live", p),
-      oct2025: big(w.oct2025, "windows.oct2025", p),
-      feb2025: big(w.feb2025, "windows.feb2025", p),
-    },
+    // Only "live" is required: the replay windows exist on the mainnet fork only.
+    windows: Object.fromEntries(
+      ALL_WINDOW_KEYS.filter((k) => k === "live" || w[k] !== undefined).map((k) => [k, big(w[k], `windows.${k}`, p)]),
+    ) as Record<WindowKey, bigint>,
     epochOrigin: raw.epochOrigin === undefined ? DEFAULT_EPOCH_ORIGIN : big(raw.epochOrigin, "epochOrigin", p),
   };
-  if (d.chainId !== 1) p.push(`chainId is ${String(raw.chainId)}, expected 1`);
+  if (d.chainId !== forkChain.id) p.push(`chainId is ${String(raw.chainId)}, expected ${forkChain.id}`);
   return { d, problems: p };
 }
 
@@ -92,3 +92,6 @@ export const deploymentStatus = {
 
 /** null when fork.json is missing or unreadable. May be non-null with problems listed above. */
 export const deployment: Deployment | null = parsed ? parsed.d : null;
+
+/** Windows present in this deployment, in display order. */
+export const WINDOW_KEYS: WindowKey[] = ALL_WINDOW_KEYS.filter((k) => deployment?.windows[k] !== undefined);

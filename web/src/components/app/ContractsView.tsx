@@ -1,7 +1,7 @@
 "use client";
 
 import { abis } from "@/lib/abis";
-import { RPC_URL } from "@/lib/chain";
+import { addrUrl, IS_FORK, NETWORK_LONG, RPC_URL, SETTLEMENT_PAIR } from "@/lib/chain";
 import { deployment, WINDOW_KEYS, type Deployment } from "@/lib/deployment";
 import { errMsg, pipsToPct, varianceToVol } from "@/lib/format";
 import { epochRows, useProtocolLogs, useProtocolState, WEEK } from "@/lib/protocol";
@@ -20,23 +20,23 @@ export function ContractsView() {
   const contracts: { name: string; role: string; addr: string }[] = [
     { name: "TremorHook", role: "Uniswap v4 hook: charges the fee, buys cover, donates payouts", addr: d.hook },
     { name: "TremorReceiver", role: "Takes Chainlink CRE reports and sets the weekly fee", addr: d.receiver },
-    { name: "VarianceMarket", role: "Weekly LONG/SHORT claims, settled from Chainlink rounds", addr: d.market },
+    { name: "VarianceMarket", role: `Weekly LONG/SHORT claims, settled from Chainlink ${SETTLEMENT_PAIR} rounds`, addr: d.market },
     { name: "TremorVault", role: "Writes cover and ships it as one 1inch Aqua strategy", addr: d.vault },
     { name: "TremorAquaSwapVMRouter", role: "SwapVM router with the CappedPayoffCurve instruction 0x22", addr: d.router },
     { name: "Aqua", role: "1inch Aqua registry (deployed mainnet contract)", addr: d.aqua },
     { name: "PoolManager", role: "Uniswap v4 PoolManager (deployed mainnet contract)", addr: d.poolManager },
     { name: "WETH", role: "Collateral and payout token", addr: d.weth },
-    { name: "UNI", role: "Pool token", addr: d.uni },
+    { name: IS_FORK ? "UNI" : "tUNI", role: IS_FORK ? "Pool token" : "Test UNI for the Sepolia pool (no value)", addr: d.uni },
   ];
   const handWritten = Object.entries(abis).filter(([, v]) => !v.fromArtifact).map(([k]) => k);
 
   return (
     <>
-      <PageHeader title="Contracts & method" sub="Addresses, raw measurements and the formulas behind every number in the app." />
+      <PageHeader title="Contracts & method" sub={`Addresses, raw measurements and the formulas behind every number in the app, on ${NETWORK_LONG}.`} />
 
       {state.error && (
         <div className="mb-4">
-          <ErrorNote title="Can't reach the local fork">{errMsg(state.error)}</ErrorNote>
+          <ErrorNote title={IS_FORK ? "Can't reach the local fork" : "Can't reach Sepolia"}>{errMsg(state.error)}</ErrorNote>
         </div>
       )}
 
@@ -49,7 +49,14 @@ export function ContractsView() {
                   <div className="text-[14px] font-medium">{c.name}</div>
                   <div className="text-[12.5px] text-ink-3">{c.role}</div>
                 </div>
-                <CopyButton value={c.addr} />
+                <span className="flex items-center gap-1">
+                  {addrUrl(c.addr) && (
+                    <a href={addrUrl(c.addr)!} target="_blank" rel="noreferrer" className="rounded-md px-1.5 py-0.5 text-[12px] text-ink-3 hover:bg-hover hover:text-ink">
+                      Etherscan ↗
+                    </a>
+                  )}
+                  <CopyButton value={c.addr} />
+                </span>
               </li>
             ))}
             <li className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-5 py-3">
@@ -65,9 +72,9 @@ export function ContractsView() {
         <div className="space-y-4">
           <Panel title="Network">
             <dl className="num space-y-2 text-[13.5px]">
-              <Row k="Chain" v="Local fork of Ethereum mainnet (id 1)" />
+              <Row k="Chain" v={IS_FORK ? "Local fork of Ethereum mainnet (id 1)" : "Sepolia testnet (id 11155111)"} />
               <Row k="RPC" v={RPC_URL} />
-              <Row k="Forked at block" v={d.forkBlock.toLocaleString("en-US")} />
+              <Row k={IS_FORK ? "Forked at block" : "Deployed at block"} v={d.forkBlock.toLocaleString("en-US")} />
               <Row k="Current block" v={s ? s.head.number.toLocaleString("en-US") : "…"} />
               <Row k="CRE measured up to" v={s?.lastBlock.ok ? `block ${s.lastBlock.value.toLocaleString("en-US")}` : "…"} />
             </dl>
@@ -162,13 +169,13 @@ export function ContractsView() {
       <Panel className="mt-4" title="Method">
         <div className="grid gap-6 text-[13.5px] leading-relaxed text-ink-2 md:grid-cols-2">
           <Method title="Arbitrage loss">
-            A Chainlink CRE workflow values every swap in the reference UNI/WETH 0.30% pool at Binance one-minute prices. Loss = LP fees minus the LPs&apos; markout, summed per week from Monday {fmtDayShort(d.epochOrigin, true)}.
+            A Chainlink CRE workflow values every swap in {IS_FORK ? "the reference UNI/WETH 0.30% pool" : "the Tremor tUNI/WETH pool"} at Binance one-minute prices. Loss = LP fees minus the LPs&apos; markout, summed per week from Monday {fmtDayShort(d.epochOrigin, true)}.
           </Method>
           <Method title="Hook fee">
             fee = min(0.30%, 0.5 × last week&apos;s loss ÷ volume). It is valid for one week plus a grace period; after that the hook charges nothing.
           </Method>
           <Method title="Payout">
-            LONG pays S × min(V, V<sub>cap</sub>) ÷ V<sub>cap</sub> per token and SHORT pays the rest, where V is the annualized realized variance from every Chainlink UNI/ETH update in the week.
+            LONG pays S × min(V, V<sub>cap</sub>) ÷ V<sub>cap</sub> per token and SHORT pays the rest, where V is the annualized realized variance from every Chainlink {SETTLEMENT_PAIR} update in the week.
           </Method>
           <Method title="Cover value">
             Open positions are marked at the pricing curve&apos;s bid for the whole size at zero inventory skew. It is an estimate, not an executable price. Settled positions use the exact payout.

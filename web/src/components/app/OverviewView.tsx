@@ -1,10 +1,11 @@
 "use client";
 
+import { IS_FORK, SETTLEMENT_PAIR } from "@/lib/chain";
 import { deployment, WINDOW_KEYS, type Deployment, type WindowKey } from "@/lib/deployment";
 import { errMsg, pipsToPct, varianceToVol } from "@/lib/format";
 import { epochRows, useProtocolLogs, useProtocolState, WEEK, type ProtocolLogs } from "@/lib/protocol";
 import type { WindowView } from "@/lib/chainReads";
-import { Chip, CopyButton, Empty, ErrorNote, fmtDayShort, fmtDuration, fmtSpan, fmtToken, fmtUsdCompact, fmtWhen, Kpi, MoreLink, PageHeader, Panel, Skeleton } from "./kit";
+import { Chip, TxLink, Empty, ErrorNote, fmtDayShort, fmtDuration, fmtSpan, fmtToken, fmtUsdCompact, fmtWhen, Kpi, MoreLink, PageHeader, Panel, Skeleton } from "./kit";
 
 export function windowName(key: WindowKey, w?: WindowView): string {
   if (key === "live") return "This week";
@@ -19,7 +20,11 @@ export function OverviewView() {
   const L = logs.data;
 
   if (state.error) {
-    return <ErrorNote title="Can't reach the local fork">{errMsg(state.error)}. Start Anvil and redeploy, then reload this page.</ErrorNote>;
+    return (
+      <ErrorNote title={IS_FORK ? "Can't reach the local fork" : "Can't reach Sepolia"}>
+        {errMsg(state.error)}. {IS_FORK ? "Start Anvil and redeploy, then reload this page." : "Check the RPC, then reload this page."}
+      </ErrorNote>
+    );
   }
 
   const now = s?.head.timestamp;
@@ -76,7 +81,7 @@ export function OverviewView() {
           loading={!s}
           value={live && now !== undefined ? (now < live.t1 ? fmtDuration(live.t1 - now) : "Ready") : "—"}
           sub={liveVol !== undefined && capVol !== undefined ? `Projected volatility ${Math.round(liveVol * 100)}% · cap ${Math.round(capVol * 100)}%` : undefined}
-          info="The live week settles from every Chainlink UNI/ETH update inside it. LONG pays in full if realized volatility reaches the cap."
+          info={`The live week settles from every Chainlink ${SETTLEMENT_PAIR} update inside it. LONG pays in full if realized volatility reaches the cap.`}
         />
       </div>
 
@@ -239,7 +244,7 @@ function Activity({ d, logs, loading, error }: { d: Deployment; logs?: ProtocolL
           </div>
           <div className="hidden text-right sm:block">
             <div className="text-[12.5px] text-ink-2">{logs.stamps.get(it.block) ? fmtWhen(logs.stamps.get(it.block)!) : `Block ${it.block}`}</div>
-            {it.tx && <CopyButton value={it.tx} />}
+            {it.tx && <TxLink hash={it.tx} />}
           </div>
         </li>
       ))}

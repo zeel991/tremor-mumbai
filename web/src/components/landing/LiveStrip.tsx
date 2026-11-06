@@ -6,6 +6,7 @@ import { abis, routerAbiWithErrors } from "@/lib/abis";
 import { eventLogs, read } from "@/lib/chainReads";
 import { deployment, type Deployment } from "@/lib/deployment";
 import { fmtWad, pipsToPct } from "@/lib/format";
+import { IS_FORK, NETWORK_LONG } from "@/lib/chain";
 import { decodeOrder } from "@/lib/order";
 import { quoteTraits } from "@/lib/takerTraits";
 import { publicClient } from "@/lib/wagmi";
@@ -46,7 +47,7 @@ export function LiveStrip() {
   if (!d || q.isError) {
     return (
       <p className="text-[13px] text-ink-3">
-        Live numbers appear here when the local mainnet fork is running. <span className="text-ink-2">The app shows how to start it.</span>
+        Live numbers appear here when {IS_FORK ? "the local mainnet fork is running" : "Sepolia is reachable"}. <span className="text-ink-2">The app shows how to start it.</span>
       </p>
     );
   }
@@ -69,7 +70,7 @@ export function LiveStrip() {
         ))}
       </div>
       <p className="mt-2.5 font-mono text-[11.5px] text-ink-3">
-        Read from a local fork of Ethereum mainnet{v ? ` at block ${v.block.toLocaleString("en-US")}` : ""}, against the deployed Uniswap v4, 1inch Aqua and Chainlink contracts.
+        Read from {NETWORK_LONG}{v ? ` at block ${v.block.toLocaleString("en-US")}` : ""}, against the deployed Uniswap v4, 1inch Aqua and Chainlink contracts.
       </p>
     </div>
   );

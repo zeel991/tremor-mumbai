@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { formatUnits, parseUnits, type Address, type Hash, type Hex } from "viem";
 import { useConnect, useConnection, useConnectors, useSwitchChain, useWalletClient } from "wagmi";
 import { abis, erc20Abi, hasFunction, routerAbiWithErrors } from "@/lib/abis";
-import { forkChain } from "@/lib/chain";
+import { forkChain, IS_FORK, RPC_URL, SETTLEMENT_PAIR } from "@/lib/chain";
 import { read, settled, type WindowView } from "@/lib/chainReads";
 import { deployment, WINDOW_KEYS, type Deployment, type WindowKey } from "@/lib/deployment";
 import { errMsg, varianceToVol } from "@/lib/format";
@@ -13,7 +13,7 @@ import { decodeOrder, type Order } from "@/lib/order";
 import { exactInSwapTraits, minOutWithSlippage, quoteTraits } from "@/lib/takerTraits";
 import { publicClient } from "@/lib/wagmi";
 import { useWalletOnFork } from "@/lib/walletGuard";
-import { Chip, CopyButton, ErrorNote, fmtDuration, fmtSpan, fmtToken, InfoTip, MoreLink, PageHeader, Panel, Skeleton } from "./app/kit";
+import { Chip, TxLink, ErrorNote, fmtDuration, fmtSpan, fmtToken, InfoTip, MoreLink, PageHeader, Panel, Skeleton } from "./app/kit";
 import { windowName } from "./app/OverviewView";
 
 type SideName = "LONG" | "SHORT";
@@ -194,7 +194,7 @@ export function TradeView() {
   let cta: { label: string; onClick?: () => void; disabled: boolean };
   if (closed) cta = { label: w?.finalized ? "This week has settled" : "Trading closed for this week", disabled: true };
   else if (!address) cta = { label: connect.isPending ? "Connecting…" : "Connect wallet", onClick: () => connectors[0] && connect.mutate({ connector: connectors[0] }), disabled: !connectors[0] || connect.isPending };
-  else if (guard.state === "wrong-chain") cta = { label: "Switch to the local fork", onClick: () => switchChain.mutate({ chainId: forkChain.id }), disabled: false };
+  else if (guard.state === "wrong-chain") cta = { label: IS_FORK ? "Switch to the local fork" : "Switch to Sepolia", onClick: () => switchChain.mutate({ chainId: forkChain.id }), disabled: false };
   else if (guard.state === "not-fork") cta = { label: "Wallet isn't on the local fork", disabled: true };
   else if (guard.state === "checking") cta = { label: "Checking network…", disabled: true };
   else if (amount === undefined) cta = { label: "Enter an amount", disabled: true };
@@ -207,7 +207,7 @@ export function TradeView() {
 
   return (
     <>
-      <PageHeader title="Trade cover" sub="Buy LONG if you expect UNI/ETH to swing this week, SHORT if you expect it to stay calm. Every claim is fully backed by WETH." />
+      <PageHeader title="Trade cover" sub={`Buy LONG if you expect ${SETTLEMENT_PAIR} to swing this week, SHORT if you expect it to stay calm. Every claim is fully backed by WETH.`} />
 
       {win.error && (
         <div className="mb-4">
@@ -248,7 +248,7 @@ export function TradeView() {
                 className={`rounded-xl border p-3.5 text-left transition-colors ${side === x ? "border-signal/60 bg-signal/[0.07]" : "border-line hover:border-line-2"}`}
               >
                 <div className="text-[14.5px] font-medium">{x}</div>
-                <div className="mt-0.5 text-[12.5px] text-ink-3">{x === "LONG" ? "Pays more if UNI/ETH swings" : "Pays more if UNI/ETH stays calm"}</div>
+                <div className="mt-0.5 text-[12.5px] text-ink-3">{x === "LONG" ? `Pays more if ${SETTLEMENT_PAIR} swings` : `Pays more if ${SETTLEMENT_PAIR} stays calm`}</div>
               </button>
             ))}
           </div>
@@ -312,7 +312,7 @@ export function TradeView() {
               {cta.label}
             </button>
             {!address && !closed && <p className="mt-2.5 text-center text-[12.5px] text-ink-3">Quotes work without a wallet.</p>}
-            {guard.state === "not-fork" && <p className="mt-2.5 text-center text-[12.5px] text-ink-3">Point your wallet&apos;s chain-1 RPC at http://127.0.0.1:8545 so nothing reaches real mainnet.</p>}
+            {guard.state === "not-fork" && <p className="mt-2.5 text-center text-[12.5px] text-ink-3">Point your wallet&apos;s chain-1 RPC at {RPC_URL} so nothing reaches real mainnet.</p>}
           </div>
 
           {txs.length > 0 && (
@@ -324,7 +324,7 @@ export function TradeView() {
                     {t.label}
                     <span className="text-ink-3"> · {t.status === "signing" ? "confirm in wallet" : t.status}</span>
                   </span>
-                  {t.hash && <CopyButton value={t.hash} />}
+                  {t.hash && <TxLink hash={t.hash} />}
                 </li>
               ))}
             </ul>
