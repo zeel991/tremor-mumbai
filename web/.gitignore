@@ -4,3 +4,5 @@ next-env.d.ts
 *.tsbuildinfo
 # written by scripts/sync.mjs on every dev/build/typecheck
 src/generated/
+.vercel
+.env*

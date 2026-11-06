@@ -2,6 +2,8 @@
 
 ETHGlobal Mumbai 2026. Built from an empty repo after kickoff; AI use is disclosed in [`AI_USAGE.md`](AI_USAGE.md).
 
+**Live app (Sepolia):** https://tremor-mumbai.vercel.app
+
 > **Tremor is a Uniswap v4 hook that measures LP adverse selection with Chainlink CRE, buys capped variance on 1inch Aqua, and returns high-volatility payouts to the pool's in-range liquidity.**
 >
 > **Why:** in UNI/WETH 0.3% on Ethereum, our Binance-price markout estimates arbitrage loss equal to 93% of LP fees ($10.02M of $10.74M over 103 weeks, excluding one documented outlier week). LP net was negative in 14 of the 104 weeks. In the worst, 6 Oct 2025, measured loss was $172,486 against $34,971 of fees: LP net −$137,516.
@@ -67,7 +69,7 @@ All of these ran on an **Anvil fork of Ethereum mainnet**, against the deployed 
 
 ## Sepolia testnet deployment
 
-Tremor is also deployed on **Sepolia**, against the real Uniswap v4 PoolManager and the 1inch Aqua registry (byte-identical to mainnet's). Run the app against it with `cd web && npm run dev:sepolia`.
+Tremor is also deployed on **Sepolia**, against the real Uniswap v4 PoolManager and the 1inch Aqua registry (byte-identical to mainnet's). It's live at https://tremor-mumbai.vercel.app, or run it locally with `cd web && npm run dev:sepolia`.
 
 | Contract | Address (Sepolia) |
 |---|---|
