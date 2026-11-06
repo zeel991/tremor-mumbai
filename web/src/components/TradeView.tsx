@@ -20,6 +20,8 @@ type SideName = "LONG" | "SHORT";
 type Dir = "buy" | "sell";
 const WAD = 10n ** 18n;
 const SLIPPAGE_BPS = 100n; // 1%
+const GAS_RESERVE = 10n ** 15n; // keep 0.001 ETH for gas when wrapping
+const WETH_DEPOSIT_ABI = [{ type: "function", name: "deposit", stateMutability: "payable", inputs: [], outputs: [] }] as const;
 
 async function loadWindow(d: Deployment, id: bigint) {
   const [w, head] = await Promise.all([read<WindowView>(d.market, abis.market.abi, "window", [id]), publicClient.getBlock()]);
@@ -121,13 +123,14 @@ export function TradeView() {
     enabled: !!address && !!w && !!tokenIn,
     refetchInterval: 8_000,
     queryFn: async () => {
-      const [weth, long, short, allowance] = await Promise.all([
+      const [weth, long, short, allowance, eth] = await Promise.all([
         read<bigint>(d.weth, erc20Abi, "balanceOf", [address!]),
         read<bigint>(w!.long, erc20Abi, "balanceOf", [address!]),
         read<bigint>(w!.short, erc20Abi, "balanceOf", [address!]),
         read<bigint>(tokenIn!, erc20Abi, "allowance", [address!, d.router]),
+        publicClient.getBalance({ address: address! }),
       ]);
-      return { weth, long, short, allowance };
+      return { weth, long, short, allowance, eth };
     },
   });
 
@@ -168,6 +171,16 @@ export function TradeView() {
     }
   }
 
+  // A real wallet holds ETH; the strategy trades WETH. Wrap exactly the shortfall (WETH9.deposit).
+  const wrapShortfall = q && user.data && dir === "buy" && insufficient ? q.amountIn - user.data.weth : undefined;
+  const canWrap = wrapShortfall !== undefined && !!user.data && user.data.eth > wrapShortfall + GAS_RESERVE;
+  function wrap() {
+    if (!wrapShortfall || !walletClient || !address) return;
+    void send(`Wrap ${fmtToken(wrapShortfall, "ETH")}`, () =>
+      walletClient.writeContract({ address: d.weth, abi: WETH_DEPOSIT_ABI, functionName: "deposit", value: wrapShortfall, chain: forkChain, account: address }),
+    );
+  }
+
   function approve() {
     if (!q || !tokenIn || !walletClient || !address) return;
     // The taker pays the ROUTER: in Aqua mode SwapVM does safeTransferFrom(taker -> router) then AQUA.push.
@@ -200,6 +213,7 @@ export function TradeView() {
   else if (guard.state === "checking") cta = { label: "Checking network…", disabled: true };
   else if (amount === undefined) cta = { label: "Enter an amount", disabled: true };
   else if (!q) cta = { label: quote.error ? "No quote for this size" : "Getting quote…", disabled: true };
+  else if (insufficient && canWrap) cta = { label: busy ? "Confirm in wallet…" : `Wrap ${fmtToken(wrapShortfall, "ETH")} to WETH`, onClick: wrap, disabled: busy };
   else if (insufficient) cta = { label: `Not enough ${inSym}`, disabled: true };
   else if (needsApproval) cta = { label: `Approve ${inSym}`, onClick: approve, disabled: busy };
   else cta = { label: busy ? "Confirm in wallet…" : `${dir === "buy" ? "Buy" : "Sell"} ${side}`, onClick: swap, disabled: busy || !user.data };

@@ -368,7 +368,16 @@ const FAQ = [
   },
   {
     q: "Is it live on mainnet?",
-    a: "No. Tremor runs on a local fork of Ethereum mainnet, against the deployed Uniswap v4 PoolManager, 1inch Aqua registry and Chainlink UNI/ETH feed. Nothing has been deployed to a public chain.",
+    a: (
+      <>
+        No. Tremor runs in two places. The full demo runs on a local fork of Ethereum mainnet, against the deployed Uniswap v4 PoolManager, 1inch Aqua
+        registry and Chainlink UNI/ETH feed, including two real weeks settled from history. It is also{" "}
+        <a href="https://sepolia.etherscan.io/address/0x547C1194070EFdEDAfa5939D291aEDB444088044" target="_blank" rel="noreferrer" className="text-ink underline underline-offset-4 hover:text-signal-2">
+          deployed on Sepolia
+        </a>
+        , against the real v4 PoolManager and 1inch Aqua, where it settles on Chainlink ETH/USD with a test UNI token.
+      </>
+    ),
   },
   {
     q: "How much of the loss does it recover?",

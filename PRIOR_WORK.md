@@ -20,4 +20,4 @@ It was a realized-variance market on Base Sepolia. It used a self-deployed Aqua 
 - CRE measurement of arbitrage loss;
 - a 104-week measured LVR dataset.
 
-**Status of eligibility:** we are asking ETHGlobal staff in writing whether this rebuild may enter from-scratch partner prizes and Finalist judging. Their answer will be recorded here.
+**Status of eligibility:** pending. We are asking ETHGlobal staff in writing whether this rebuild may enter partner prizes and Finalist judging (message: [`docs/submission/eligibility-message.md`](docs/submission/eligibility-message.md)). Their written answer will be recorded here.
