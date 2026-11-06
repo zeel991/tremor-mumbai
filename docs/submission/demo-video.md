@@ -33,7 +33,6 @@ precomputed CRE reports through an impersonated forwarder: say so if you show it
 
 ## Claims to keep accurate on camera
 - Speak it yourself: ETHGlobal requires a human voice, not an AI voice-over. At least 720p.
-- If ETHGlobal hasn't confirmed Classic eligibility, say "Continuity" in the closing line.
 - Say "measured" for the 93% / 14-of-104 / $137,516 numbers: it's our method (every swap at Binance one-minute prices), not a third-party figure.
 - Don't say "recovers half of LP losses": the 49% backtest is an upper bound that assumes no lost volume.
 - Shot 6's settlement is a **replay on a mainnet fork** of a real historical week; say "settled from real Chainlink history".

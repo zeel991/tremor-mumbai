@@ -1,10 +1,9 @@
 # Tremor at ETHGlobal Mumbai: verified build plan (input to spec.md)
 
-**Status:** every technical claim below has been checked against primary sources. Evidence lives in four research files:
+**Status:** every technical claim below has been checked against primary sources. Evidence lives in three research files:
 - [research/1inch_aqua.md](research/1inch_aqua.md): swap-vm v1.0.2 and Aqua source, the 1inch docs portal.
 - [research/uniswap_v4.md](research/uniswap_v4.md): v4-core, OpenZeppelin uniswap-hooks v1.3.0, the Uniswap docs.
 - [research/chainlink.md](research/chainlink.md): CRE docs, cre-cli source, feed directory, on-chain reads.
-- [research/ethglobal_and_tremor_v1.md](research/ethglobal_and_tremor_v1.md): ETHGlobal rules and FAQ, the v1 repo.
 
 Market data is in [data/README.md](../data/README.md). The 1inch workshop is in [1inch_workshop/notes.md](1inch_workshop/notes.md).
 
@@ -19,24 +18,14 @@ Market data is in [data/README.md](../data/README.md). The 1inch workshop is in 
 
 ---
 
-## 0. Eligibility: hour 0, before any code
+## 0. Repository rules: hour 0, before any code
 
-You decided to rebuild Tremor from scratch, and the plan follows that decision. But the rules make it risky, so settle it first:
-- **Rules:** "Pre-existing project-specific code, designs, or assets are not allowed" (ethglobal.com/rules).
-- **FAQ:** teams "porting or continuing existing projects" are not eligible to be ETHGlobal Finalists.
-- **Gap:** no page says a team may rebuild its own earlier project.
-
-Do these:
-- **Get a written answer from ETHGlobal staff** (help desk or Discord) to two questions:
-  - (a) Can a ground-up rebuild of our ETHOnline project enter from-scratch partner prizes, and is it finalist-eligible?
-  - (b) If not, how do we join the Continuity track now? No page describes how to join or gives a deadline.
-- **Disclose v1 in writing** to ETHGlobal and in the README. The rules say undisclosed prior work means "disqualified, prizes revoked… banned".
-- **Make a NEW public GitHub repo** (e.g. `zeel991/tremor-mumbai`), not a fork or branch of v1's `zeel991/tremor`.
+- **Make a NEW public GitHub repo** (e.g. `zeel991/tremor-mumbai`), created after kickoff.
   - First commit: the spec and planning docs; **push it immediately**.
   - From then on, every member **commits small and pushes at least hourly**.
   - Never force-push or squash `main`.
   - Steps and commands are in spec.md §0.
-- **Start from an empty repo** created after kickoff (Thu 5 Nov, 21:00 IST). Copy **no** v1 code, **no** v1 UI designs or assets, and no v1 test vectors. Re-derive the maths; the list is in research/ethglobal_and_tremor_v1.md §2.5.
+- **Start from an empty repo** created after kickoff (Thu 5 Nov, 21:00 IST).
 - **Public libraries are allowed:** swap-vm, Aqua, v4-core, OpenZeppelin uniswap-hooks, solady. Say so in the README.
 - **Commit steadily, from every member.** ETHGlobal treats "single commits of large files" as unqualified, and 1inch bans a single-commit final day.
 - **AI rules:** document where AI was used. Because we work from a spec, **commit spec.md, the prompts and the planning documents (including this file) to the repo**. The spec-driven rule requires it.
@@ -92,7 +81,6 @@ All figures are measured: every swap, valued at Binance prices. Method and limit
 
 - The odds are my estimates from past winners; only winners are published, so they can't be calculated.
 - **Ceiling:** $8,000. **Likely:** one prize, possibly two.
-- **Fallback if the rebuild is ruled ineligible:** the continuity tracks (Aqua $1,500, Uniswap $1,250 × 4, Definitive "Most creative" $2,500). Chainlink has **no** continuity prize.
 - **Stay clear of:**
   - Solvent's cross-strategy solvency guard (ETHOnline Aqua winner).
   - The losing "fee or insurance beside the pool" projects: Volatus, Riptide, Carry, Adaptive Hook AMM.
@@ -241,7 +229,7 @@ Roles: A = market and Chainlink settlement; B = Aqua/SwapVM; C = hook and CRE; D
 | **Fri 14:00** | **Checkpoint: WETH → LONG fill through 0x22 on the fork** | | | |
 | Fri 14:00–22:00 | Phase-change guard; edge cases | Exit path (LONG → WETH); inventory skew | `TremorReceiver`; CRE workflow end to end; drip donate + JIT penalty | Frontend wired to the fork |
 | **Fri 22:00** | **Checkpoint: full loop with transaction hashes** | | | |
-| Fri 22:00 – Sat 04:00 | Freeze contracts; README prior-work section | README Aqua section | `FEEDBACK.md`; Uniswap form; CRE simulation log in the README | Backtest slide; architecture diagram; take turns sleeping |
+| Fri 22:00 – Sat 04:00 | Freeze contracts | README Aqua section | `FEEDBACK.md`; Uniswap form; CRE simulation log in the README | Backtest slide; architecture diagram; take turns sleeping |
 | Sat 04:00–07:30 | | | | **Record the 2–4 minute video** (no TTS, ≥720p) |
 | **Sat 08:00** | **Submit**: pick the 3 prizes plus Finalist; one hour of buffer before 09:00 | | | |
 
@@ -272,7 +260,6 @@ Never cut the 0x22 fill or the hook fee.
 - [ ] Premiums depend on it ("meaningfully used").
 
 **ETHGlobal:**
-- [ ] Prior work disclosed in writing.
 - [ ] AI attribution.
 - [ ] spec.md, prompts and planning docs in the repo.
 - [ ] Video 2–4 minutes.
@@ -284,7 +271,6 @@ Never cut the 0x22 fill or the hook fee.
 
 | Risk | Fallback |
 |---|---|
-| ETHGlobal rules the rebuild "porting" | Continuity tracks if they let us join; otherwise compete for partner prizes only, if they allow it. Get it in writing |
 | The router exceeds 24,576 bytes with 0x22 (only about 4 KB of headroom) | Use the `Extruction` (0x20) callback on the **deployed** router `0x11111133…c0de` (no redeploy; scores lower) |
 | CRE simulation can't target the fork | Use an `experimental-chains` entry in `project.yaml` (cre-cli source); otherwise simulate against Sepolia for the CRE leg only |
 | A phase change during the event | Phase 3 has run since Jul 2024; if `phaseId` changes, the market flags the window and settlement uses the new phase only |

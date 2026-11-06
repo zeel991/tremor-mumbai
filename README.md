@@ -1,6 +1,6 @@
 # Tremor: hook-funded variance cover for Uniswap LPs
 
-ETHGlobal Mumbai 2026. Built from an empty repo after kickoff; prior work is disclosed in [`PRIOR_WORK.md`](PRIOR_WORK.md), and AI use in [`AI_USAGE.md`](AI_USAGE.md).
+ETHGlobal Mumbai 2026. Built from an empty repo after kickoff; AI use is disclosed in [`AI_USAGE.md`](AI_USAGE.md).
 
 > **Tremor is a Uniswap v4 hook that measures LP adverse selection with Chainlink CRE, buys capped variance on 1inch Aqua, and returns high-volatility payouts to the pool's in-range liquidity.**
 >

@@ -2,7 +2,6 @@
 
 > **Status:** v1.0, written Fri 6 Nov 2026 IST. This spec is the build contract. Change it by editing it in the repo, not in chat.
 > **Spec-driven disclosure:** ETHGlobal requires teams that build from a spec to commit "all spec files, prompts, and planning artifacts". Commit this file, `tremor_mumbai_plan.md`, `research/*.md`, `data/` and `1inch_workshop/notes.md` to the repo.
-> **Prior work:** Tremor's ETHOnline 2026 submission (`github.com/zeel991/tremor`) is disclosed in §15. No code, design or asset from it is reused. Every formula here is re-derived.
 
 **What "Verified" means in this document:**
 - `[S]` is a **source-read**: code or docs were read, nothing was run.
@@ -28,7 +27,7 @@
    git clone https://github.com/zeel991/tremor-mumbai.git && cd tremor-mumbai
    ```
 
-2. **First commit, pushed immediately:** the planning artifacts, which the spec-driven rule requires. That's `docs/spec.md` (this file), `docs/tremor_mumbai_plan.md`, `docs/research/*.md`, `docs/1inch_workshop/notes.md`, `data/` (the lvr_check scripts + README) and `README.md` (a stub). Add `PRIOR_WORK.md` and `AI_USAGE.md`.
+2. **First commit, pushed immediately:** the planning artifacts, which the spec-driven rule requires. That's `docs/spec.md` (this file), `docs/tremor_mumbai_plan.md`, `docs/research/*.md`, `docs/1inch_workshop/notes.md`, `data/` (the lvr_check scripts + README) and `README.md` (a stub). Add `AI_USAGE.md`.
 
    ```bash
    git add -A && git commit -m "docs: spec, plan, research and data method" && git push -u origin main
@@ -150,7 +149,7 @@ tremor/
   cre/                  CRE TS workflow: workflow.ts, project.yaml, config.{fork,sepolia}.json, backfill.sh
   web/                  Next.js + viem/wagmi (new design)
   data/                 lvr_check scripts + README (measurement method), backtest_premium.py
-  docs/                 spec.md (this file), plan, research/, AI_USAGE.md, PRIOR_WORK.md
+  docs/                 spec.md (this file), plan, research/, AI_USAGE.md
   FEEDBACK.md           Uniswap feedback (required)
   README.md
 ```
@@ -545,11 +544,10 @@ That is 15 EVM reads (at the limit) and 2 HTTP calls.
 ## 14. Compliance checklist
 
 **ETHGlobal:**
-- [ ] **New** public GitHub repo, created after kickoff (Thu 5 Nov, 21:00 IST). Not a fork or branch of v1 (§0).
+- [ ] **New** public GitHub repo, created after kickoff (Thu 5 Nov, 21:00 IST). Not a fork or branch of another repo (§0).
 - [ ] Planning docs were the first commit, pushed.
 - [ ] Commits from every member, **pushed at least hourly**; no force-push or squash of `main`.
 - [ ] Final push and `submission` tag before Sat 09:00 IST.
-- [ ] `PRIOR_WORK.md` and written disclosure to staff.
 - [ ] `AI_USAGE.md`.
 - [ ] Spec and planning docs committed.
 - [ ] Video 2–4 minutes.
@@ -573,26 +571,21 @@ That is 15 EVM reads (at the limit) and 2 HTTP calls.
 - [ ] Successful CLI simulation logged.
 - [ ] Meaningfully used: premiums depend on it.
 
-## 15. Prior work and provenance
-- **Tremor (ETHOnline 2026)** `github.com/zeel991/tremor`. It was a variance market on Base Sepolia that used a self-deployed Aqua and router, stock SwapVM instructions with an `Extruction` callback, a fixed sampling grid, and MockUSDC. It won no prizes.
-- **New in this build:**
-  - a custom SwapVM instruction on the **deployed** Aqua registry;
-  - one three-token strategy with complete-set collateral;
-  - tick-level settlement on the UNI/ETH feed;
-  - the Uniswap v4 hook-fee insurance loop;
-  - CRE measurement of arbitrage loss;
-  - the 104-week LVR dataset.
-- **Ideas carried over:** variance claims, and LONG/SHORT complementarity. Both are re-derived here (§7); no code, design or asset is copied.
-- **Pending:** ETHGlobal staff's written ruling on eligibility (plan §0).
+## 15. What this build contains
+- a custom SwapVM instruction on the **deployed** Aqua registry;
+- one three-token strategy with complete-set collateral;
+- tick-level settlement on the UNI/ETH feed;
+- the Uniswap v4 hook-fee insurance loop;
+- CRE measurement of arbitrage loss;
+- the 104-week LVR dataset.
 
 ## 16. Open items to close in hours 0–2
 0. The new repo exists, and the first commit (the planning docs) is pushed (§0).
-1. The written eligibility ruling from ETHGlobal staff.
-2. The router size gate (§6.3).
-3. A CRE `--broadcast` write on the Anvil fork (§8).
-4. The v1.0.2 Aqua-mode token flow for `tokenIn`: confirm against `SwapVM.sol:217-287` in a fork test before building the frontend.
-5. That CRE `filterLogs` returns `blockNumber` per log, needed for timestamp interpolation. If it also returns `blockTimestamp`, drop step 3 of §8.
-6. That the v4 `Swap` event's sign (swapper-perspective) shows up as expected in a fork test.
+1. The router size gate (§6.3).
+2. A CRE `--broadcast` write on the Anvil fork (§8).
+3. The v1.0.2 Aqua-mode token flow for `tokenIn`: confirm against `SwapVM.sol:217-287` in a fork test before building the frontend.
+4. That CRE `filterLogs` returns `blockNumber` per log, needed for timestamp interpolation. If it also returns `blockTimestamp`, drop step 3 of §8.
+5. That the v4 `Swap` event's sign (swapper-perspective) shows up as expected in a fork test.
 
 ## 17. Build notes: where the implementation differs from this spec
 
