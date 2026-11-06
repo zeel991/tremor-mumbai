@@ -3,39 +3,70 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useConnect, useConnection, useConnectors, useDisconnect, useSwitchChain } from "wagmi";
-import { forkChain, RPC_URL } from "@/lib/chain";
+import { forkChain } from "@/lib/chain";
 import { shortAddr } from "@/lib/format";
+import { useHeadBlock } from "@/lib/protocol";
 import { useWalletOnFork } from "@/lib/walletGuard";
 import { Wordmark } from "./Mark";
 
 const NAV = [
-  { href: "/app/lp", label: "LP" },
-  { href: "/app/trade", label: "Trade cover" },
+  { href: "/app", label: "Overview" },
+  { href: "/app/trade", label: "Trade" },
   { href: "/app/data", label: "Data" },
+  { href: "/app/contracts", label: "Contracts" },
 ];
 
 export function AppHeader() {
   const path = usePathname();
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-page/80 backdrop-blur-xl">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3 sm:px-6">
         <Wordmark />
-        <nav className="flex gap-1 rounded-lg border border-line bg-surface p-1">
-          {NAV.map((n) => (
-            <Link
-              key={n.href}
-              href={n.href}
-              className={`rounded-md px-3 py-1.5 text-[14px] transition-colors ${path === n.href ? "bg-hover font-medium text-ink" : "text-ink-2 hover:text-ink"}`}
-            >
-              {n.label}
-            </Link>
-          ))}
+        <nav className="order-last flex w-full gap-1 overflow-x-auto md:order-none md:w-auto">
+          {NAV.map((n) => {
+            const active = path === n.href;
+            return (
+              <Link
+                key={n.href}
+                href={n.href}
+                aria-current={active ? "page" : undefined}
+                className={`relative rounded-md px-3 py-1.5 text-[14px] transition-colors ${active ? "text-ink" : "text-ink-3 hover:text-ink-2"}`}
+              >
+                {n.label}
+                {active && <span className="absolute inset-x-3 -bottom-[13px] h-[2px] rounded-full bg-signal max-md:hidden" />}
+              </Link>
+            );
+          })}
         </nav>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-3">
+          <Network />
           <Wallet />
         </div>
       </div>
     </header>
+  );
+}
+
+/** One quiet indicator instead of developer footers: are we reading the fork, and at what block. */
+function Network() {
+  const head = useHeadBlock();
+  const ok = head.data !== undefined && !head.error;
+  return (
+    <span
+      className="hidden items-center gap-2 rounded-full border border-line px-3 py-1 text-[12.5px] text-ink-2 sm:inline-flex"
+      title={ok ? "Reading a local fork of Ethereum mainnet at http://127.0.0.1:8545" : "The local fork at http://127.0.0.1:8545 is not responding"}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${ok ? "bg-[#6fd29b]" : "bg-loss"}`} />
+      {ok ? (
+        <>
+          Mainnet fork <span className="num text-ink-3">#{head.data!.toLocaleString("en-US")}</span>
+        </>
+      ) : head.isLoading ? (
+        "Connecting…"
+      ) : (
+        "Fork offline"
+      )}
+    </span>
   );
 }
 
@@ -50,36 +81,31 @@ function Wallet() {
   if (status !== "connected" || !address) {
     const injected = connectors[0];
     return (
-      <div className="flex items-center gap-2 text-[13px]">
-        <span className="hidden text-ink-3 md:inline">read-only via {RPC_URL}</span>
-        <button
-          className="btn-primary disabled:opacity-50"
-          disabled={!injected || connect.isPending}
-          onClick={() => injected && connect.mutate({ connector: injected })}
-        >
-          {connect.isPending ? "Connecting…" : "Connect wallet"}
-        </button>
-        {connect.error && <span className="text-loss">{connect.error.message.split("\n")[0]}</span>}
-      </div>
+      <button className="btn-primary" disabled={!injected || connect.isPending} onClick={() => injected && connect.mutate({ connector: injected })} title={connect.error?.message.split("\n")[0]}>
+        {connect.isPending ? "Connecting…" : "Connect wallet"}
+      </button>
     );
   }
 
   return (
     <div className="flex items-center gap-2 text-[13px]">
       {guard.state === "wrong-chain" && (
-        <button className="rounded-md border border-warn-line bg-warn-bg px-2 py-1" onClick={() => switchChain.mutate({ chainId: forkChain.id })}>
-          Wallet on chain {guard.chainId}: switch to 1
+        <button className="rounded-lg border border-warn-line bg-warn-bg px-3 py-1.5 text-[#f0c36d]" onClick={() => switchChain.mutate({ chainId: forkChain.id })}>
+          Switch network
         </button>
       )}
       {guard.state === "not-fork" && (
-        <span className="rounded-md border border-warn-line bg-warn-bg px-2 py-1" title={guard.detail}>
-          Wallet RPC is not the local fork
+        <span className="rounded-lg border border-warn-line bg-warn-bg px-3 py-1.5 text-[#f0c36d]" title={guard.detail}>
+          Wrong RPC
         </span>
       )}
-      {guard.state === "ok" && <span className="text-ink-3">wallet on local fork</span>}
-      <span className="font-mono">{shortAddr(address)}</span>
-      <button className="rounded-md border border-line px-2 py-1 hover:bg-hover" onClick={() => disconnect.mutate({})}>
-        Disconnect
+      <button
+        className="flex items-center gap-2 rounded-lg border border-line px-3 py-1.5 font-mono hover:bg-hover"
+        onClick={() => disconnect.mutate({})}
+        title="Disconnect"
+      >
+        <span className="h-4 w-4 rounded-full bg-gradient-to-br from-signal to-[#6ea8ff]" />
+        {shortAddr(address)}
       </button>
     </div>
   );

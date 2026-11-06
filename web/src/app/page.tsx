@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { Mark, Wordmark } from "@/components/Mark";
 import { LiveStrip } from "@/components/landing/LiveStrip";
-import { CountUp, Reveal, Spotlight } from "@/components/landing/motion";
+import { CountUp, Reveal } from "@/components/landing/motion";
 import { HeroOrb } from "@/components/landing/HeroOrb";
 import { TremorField } from "@/components/landing/TremorField";
 import { WeeklyBars } from "@/components/landing/WeeklyBars";
@@ -11,19 +11,28 @@ import { fmtUsd } from "@/lib/format";
 
 const REPO = "https://github.com/zeel991/tremor-mumbai";
 const SPEC = `${REPO}/blob/main/docs/spec.md`;
-const APP = "/app/lp";
+const APP = "/app";
 
-const TITLE = ["Volatility", "cover", "for", "Uniswap", "LPs."];
 
 export default function Landing() {
   const { exOutlier, all, worst } = summary;
   return (
-    <div className="overflow-x-clip">
+    <div
+      className="overflow-x-clip"
+      data-string="progress"
+      data-string-id="page"
+      data-string-key="--page-progress"
+      data-string-enter-el="top"
+      data-string-enter-vp="top"
+      data-string-exit-el="bottom"
+      data-string-exit-vp="bottom"
+    >
+      <div aria-hidden="true" className="page-progress fixed inset-x-0 top-0 z-[60] h-[2px] origin-left bg-signal" />
       <Nav />
       <Hero />
 
       {/* ---- the problem, measured --------------------------------------------------- */}
-      <section id="data" className="relative border-t border-line">
+      <section id="data" className="relative scroll-mt-16 border-t border-line">
         <div className="mx-auto max-w-6xl px-4 py-24 sm:px-6 md:py-32">
           <Reveal>
             <Eyebrow>The problem</Eyebrow>
@@ -56,12 +65,12 @@ export default function Landing() {
       </section>
 
       {/* ---- how it works ------------------------------------------------------------- */}
-      <section id="how" className="relative border-t border-line">
+      <section id="how" className="relative scroll-mt-16 border-t border-line">
         <div className="bg-grid pointer-events-none absolute inset-0 [mask-image:radial-gradient(70%_60%_at_50%_40%,black,transparent)]" />
         <div className="relative mx-auto max-w-6xl px-4 py-24 sm:px-6 md:py-32">
           <Reveal>
             <Eyebrow>How it works</Eyebrow>
-            <h2 className="mt-4 max-w-3xl text-[34px] font-medium leading-[1.08] tracking-tight sm:text-[48px]">Measure the loss. Charge for it. Buy cover with it.</h2>
+            <h2 className="mt-4 max-w-3xl text-[34px] font-medium leading-[1.08] tracking-tight sm:text-[48px] split-up" data-string="split" data-string-split="word-line[start]">Measure the loss. Charge for it. Buy cover with it.</h2>
           </Reveal>
 
           <div className="relative mt-16">
@@ -71,14 +80,14 @@ export default function Landing() {
             <div className="grid gap-5 md:grid-cols-3">
               {STEPS.map((s, i) => (
                 <Reveal key={s.n} delay={i * 120}>
-                  <Spotlight className="h-full rounded-2xl border border-line bg-surface p-6">
+                  <div data-string="spotlight" className="st-spotlight h-full rounded-2xl border border-line bg-surface p-6">
                     <div className="flex h-[54px] items-center">
                       <span className="flex h-[54px] w-[54px] items-center justify-center rounded-xl border border-line-2 bg-page font-mono text-[15px] text-signal">{s.n}</span>
                     </div>
                     <h3 className="mt-6 text-[22px] font-medium tracking-tight">{s.title}</h3>
                     <p className="mt-2 text-[15px] leading-relaxed text-ink-2">{s.body}</p>
                     <div className="mt-6 border-t border-line pt-4 font-mono text-[12px] text-ink-3">{s.tech}</div>
-                  </Spotlight>
+                  </div>
                 </Reveal>
               ))}
             </div>
@@ -91,7 +100,7 @@ export default function Landing() {
         <div className="mx-auto max-w-6xl px-4 py-24 sm:px-6 md:py-32">
           <Reveal>
             <Eyebrow>The payout</Eyebrow>
-            <h2 className="mt-4 max-w-3xl text-[34px] font-medium leading-[1.08] tracking-tight sm:text-[48px]">Cover pays more when the market moves more.</h2>
+            <h2 className="mt-4 max-w-3xl text-[34px] font-medium leading-[1.08] tracking-tight sm:text-[48px] split-up" data-string="split" data-string-split="word-line[start]">Cover pays more when the market moves more.</h2>
             <p className="mt-5 max-w-2xl text-[16px] leading-relaxed text-ink-2">
               Each LONG claim pays out from the realized volatility of UNI/ETH over one week, read from every Chainlink price update in that week. Here are two real weeks,
               settled on a mainnet fork.
@@ -109,7 +118,7 @@ export default function Landing() {
         <div className="mx-auto grid max-w-6xl gap-12 px-4 py-24 sm:px-6 md:grid-cols-[1.1fr_1fr] md:py-32">
           <Reveal>
             <Eyebrow>Built in the open</Eyebrow>
-            <h2 className="mt-4 text-[34px] font-medium leading-[1.08] tracking-tight sm:text-[44px]">Built at ETHGlobal Mumbai. Every line is public.</h2>
+            <h2 className="mt-4 text-[34px] font-medium leading-[1.08] tracking-tight sm:text-[44px] split-up" data-string="split" data-string-split="word-line[start]">Built at ETHGlobal Mumbai. Every line is public.</h2>
             <p className="mt-5 max-w-xl text-[16px] leading-relaxed text-ink-2">
               The contracts, the Chainlink workflow, the data behind every number on this page and the spec we built from are in one repository, under the MIT licence.
             </p>
@@ -134,11 +143,11 @@ export default function Landing() {
       </section>
 
       {/* ---- FAQ ---------------------------------------------------------------------- */}
-      <section id="faq" className="border-t border-line">
+      <section id="faq" className="scroll-mt-16 border-t border-line">
         <div className="mx-auto grid max-w-6xl gap-10 px-4 py-24 sm:px-6 md:grid-cols-[1fr_1.6fr] md:py-32">
           <Reveal>
             <Eyebrow>Questions</Eyebrow>
-            <h2 className="mt-4 text-[34px] font-medium leading-[1.08] tracking-tight sm:text-[44px]">The short answers.</h2>
+            <h2 className="mt-4 text-[34px] font-medium leading-[1.08] tracking-tight sm:text-[44px] split-up" data-string="split" data-string-split="word-line[start]">The short answers.</h2>
           </Reveal>
           <Reveal className="divide-y divide-line border-y border-line">
             {FAQ.map((f) => (
@@ -163,9 +172,9 @@ export default function Landing() {
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(42%_48%_at_50%_50%,rgb(9_9_10/0.88),rgb(9_9_10/0.4)_60%,transparent)]" />
         <Reveal className="relative mx-auto flex max-w-6xl flex-col items-center px-4 py-28 text-center sm:px-6 md:py-36">
           <Mark size={40} />
-          <h2 className="mt-8 max-w-3xl text-[36px] font-medium leading-[1.05] tracking-tight sm:text-[56px]">See the hook, the cover and the payouts working.</h2>
+          <h2 className="mt-8 max-w-3xl text-[36px] font-medium leading-[1.05] tracking-tight sm:text-[56px] split-up" data-string="split" data-string-split="word-line[start]">See the hook, the cover and the payouts working.</h2>
           <p className="mt-5 max-w-xl text-[16px] text-ink-2">The app reads every number straight from the contracts on a mainnet fork. Quotes work without a wallet.</p>
-          <Link href={APP} className="btn-primary mt-9 px-6 py-3 text-[15px]">
+          <Link href={APP} data-string="magnetic" data-string-strength="0.35" data-string-radius="140" className="btn-primary magnetic mt-9 px-6 py-3 text-[15px]">
             Open the app <Arrow />
           </Link>
         </Reveal>
@@ -201,24 +210,22 @@ function Hero() {
   return (
     <section className="relative flex min-h-[100svh] flex-col bg-[#030304]">
       <div className="absolute inset-0 opacity-60 md:left-[42%] md:opacity-100">
-        <HeroOrb />
+        <div data-string="parallax" data-string-parallax="-0.18" className="absolute inset-0">
+          <HeroOrb />
+        </div>
       </div>
       <div className="bg-grid pointer-events-none absolute inset-0 opacity-60 [mask-image:radial-gradient(80%_70%_at_30%_30%,black,transparent)]" />
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,#030304_0%,rgb(3_3_4/0.75)_35%,transparent_65%)] max-md:bg-[linear-gradient(180deg,rgb(3_3_4/0.2),rgb(3_3_4/0.75))]" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-b from-transparent to-page" />
       <div className="relative mx-auto flex w-full max-w-6xl flex-1 flex-col px-4 pb-10 pt-32 sm:px-6 md:pt-40">
-        <h1 className="max-w-4xl text-[46px] font-medium leading-[0.98] tracking-[-0.035em] sm:text-[72px] lg:text-[92px]">
-          {TITLE.map((w, i) => (
-            <span key={w} className="word-in mr-[0.22em]" style={{ animationDelay: `${120 + i * 90}ms` }}>
-              {w}
-            </span>
-          ))}
+        <h1 data-string="split" data-string-split="char-line[start]" className="split-chars max-w-4xl text-[46px] font-medium leading-[0.98] tracking-[-0.035em] sm:text-[72px] lg:text-[92px]">
+          Volatility cover for Uniswap LPs.
         </h1>
         <p className="fade-up mt-7 max-w-xl text-[17px] leading-relaxed text-ink-2 sm:text-[19px]" style={{ animationDelay: "650ms" }}>
           Swappers pay a fee sized from measured arbitrage loss. It buys cover that pays LPs back when prices swing.
         </p>
         <div className="fade-up mt-9 flex flex-wrap items-center gap-x-6 gap-y-3" style={{ animationDelay: "800ms" }}>
-          <Link href={APP} className="btn-primary px-6 py-3 text-[15px]">
+          <Link href={APP} data-string="magnetic" data-string-strength="0.35" data-string-radius="140" className="btn-primary magnetic px-6 py-3 text-[15px]">
             Open the app <Arrow />
           </Link>
           <a href={REPO} target="_blank" rel="noreferrer" className="text-[15px] text-ink-2 underline-offset-4 hover:text-ink hover:underline">

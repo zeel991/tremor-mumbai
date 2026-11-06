@@ -1,5 +1,12 @@
-import { redirect } from "next/navigation";
+import { DeploymentGate } from "@/components/DeploymentGate";
+import { OverviewView } from "@/components/app/OverviewView";
 
-export default function AppIndex() {
-  redirect("/app/lp");
+export const metadata = { title: "Overview · Tremor" };
+
+export default function OverviewPage() {
+  return (
+    <DeploymentGate>
+      <OverviewView />
+    </DeploymentGate>
+  );
 }

@@ -1,19 +1,20 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
-import { parseUnits, type Address, type Hash, type Hex } from "viem";
-import { useConnection, useWalletClient } from "wagmi";
+import { useEffect, useRef, useState } from "react";
+import { formatUnits, parseUnits, type Address, type Hash, type Hex } from "viem";
+import { useConnect, useConnection, useConnectors, useSwitchChain, useWalletClient } from "wagmi";
 import { abis, erc20Abi, hasFunction, routerAbiWithErrors } from "@/lib/abis";
 import { forkChain } from "@/lib/chain";
 import { read, settled, type WindowView } from "@/lib/chainReads";
-import { deployment, WINDOW_KEYS, WINDOW_LABELS, type Deployment, type WindowKey } from "@/lib/deployment";
-import { errMsg, fmtDate, fmtWad, fmtWadExact, shortAddr, varianceToVol, fmtPct } from "@/lib/format";
+import { deployment, WINDOW_KEYS, type Deployment, type WindowKey } from "@/lib/deployment";
+import { errMsg, varianceToVol } from "@/lib/format";
 import { decodeOrder, type Order } from "@/lib/order";
 import { exactInSwapTraits, minOutWithSlippage, quoteTraits } from "@/lib/takerTraits";
 import { publicClient } from "@/lib/wagmi";
 import { useWalletOnFork } from "@/lib/walletGuard";
-import { Card, Mono, Notice, Stat, Tag } from "./ui";
+import { Chip, CopyButton, ErrorNote, fmtDuration, fmtSpan, fmtToken, InfoTip, MoreLink, PageHeader, Panel, Skeleton } from "./app/kit";
+import { windowName } from "./app/OverviewView";
 
 type SideName = "LONG" | "SHORT";
 type Dir = "buy" | "sell";
@@ -21,16 +22,13 @@ const WAD = 10n ** 18n;
 const SLIPPAGE_BPS = 100n; // 1%
 
 async function loadWindow(d: Deployment, id: bigint) {
-  const w = await read<WindowView>(d.market, abis.market.abi, "window", [id]);
+  const [w, head] = await Promise.all([read<WindowView>(d.market, abis.market.abi, "window", [id]), publicClient.getBlock()]);
   const lockedP = hasFunction(abis.market.abi, "lockedWeth") ? read<bigint>(d.market, abis.market.abi, "lockedWeth", [id]) : Promise.reject(new Error("market ABI has no lockedWeth"));
-  const [vProj, orderEnc, vaultLong, vaultShort, vaultWeth, supplyLong, supplyShort, locked] = await Promise.allSettled([
+  const [vProj, orderEnc, vaultLong, vaultShort, locked] = await Promise.allSettled([
     read<bigint>(d.market, abis.market.abi, "projectedVariance", [id]),
     read<Hex>(d.vault, abis.vault.abi, "currentOrderEncoded", [id]),
     read<bigint>(w.long, erc20Abi, "balanceOf", [d.vault]),
     read<bigint>(w.short, erc20Abi, "balanceOf", [d.vault]),
-    read<bigint>(d.weth, erc20Abi, "balanceOf", [d.vault]),
-    read<bigint>(w.long, erc20Abi, "totalSupply"),
-    read<bigint>(w.short, erc20Abi, "totalSupply"),
     lockedP,
   ]);
   let order: { ok: true; value: Order; encoded: Hex } | { ok: false; error: string };
@@ -40,20 +38,10 @@ async function loadWindow(d: Deployment, id: bigint) {
     try {
       order = { ok: true, value: decodeOrder(enc.value), encoded: enc.value };
     } catch (e) {
-      order = { ok: false, error: `could not decode currentOrderEncoded: ${errMsg(e)}` };
+      order = { ok: false, error: `could not decode the strategy order: ${errMsg(e)}` };
     }
   }
-  return {
-    w,
-    vProj: settled(vProj),
-    order,
-    vaultLong: settled(vaultLong),
-    vaultShort: settled(vaultShort),
-    vaultWeth: settled(vaultWeth),
-    supplyLong: settled(supplyLong),
-    supplyShort: settled(supplyShort),
-    locked: settled(locked),
-  };
+  return { w, now: head.timestamp, vProj: settled(vProj), order, vaultLong: settled(vaultLong), vaultShort: settled(vaultShort), locked: settled(locked) };
 }
 
 function useDebounced<T>(value: T, ms: number): T {
@@ -75,7 +63,7 @@ function parseAmount(s: string): bigint | undefined {
   }
 }
 
-type TxEntry = { label: string; hash?: Hash; status: "signing" | "pending" | "success" | "reverted" | "error"; detail?: string };
+type TxEntry = { id: number; label: string; hash?: Hash; status: "signing" | "pending" | "success" | "reverted" | "error"; detail?: string };
 
 export function TradeView() {
   const d = deployment as Deployment; // rendered only inside <DeploymentGate>
@@ -83,6 +71,9 @@ export function TradeView() {
   const { address } = useConnection();
   const { data: walletClient } = useWalletClient();
   const guard = useWalletOnFork();
+  const connectors = useConnectors();
+  const connect = useConnect();
+  const switchChain = useSwitchChain();
 
   const [windowKey, setWindowKey] = useState<WindowKey>("live");
   const [side, setSide] = useState<SideName>("LONG");
@@ -90,6 +81,7 @@ export function TradeView() {
   const [amountStr, setAmountStr] = useState("0.1");
   const [txs, setTxs] = useState<TxEntry[]>([]);
   const [busy, setBusy] = useState(false);
+  const txSeq = useRef(0);
 
   const id = d.windows[windowKey];
   const win = useQuery({ queryKey: ["trade-window", id.toString()], queryFn: () => loadWindow(d, id), refetchInterval: 8_000 });
@@ -102,11 +94,13 @@ export function TradeView() {
 
   const amount = useDebounced(parseAmount(amountStr), 300);
   const order = win.data?.order.ok ? win.data.order : undefined;
+  const closed = !!w?.finalized || (win.data !== undefined && !win.data.order.ok);
 
   const quote = useQuery({
     queryKey: ["trade-quote", id.toString(), tokenIn, tokenOut, amount?.toString(), order?.encoded, address],
-    enabled: !!order && !!tokenIn && !!tokenOut && amount !== undefined,
+    enabled: !!order && !closed && !!tokenIn && !!tokenOut && amount !== undefined,
     refetchInterval: 6_000,
+    retry: 0,
     queryFn: async () => {
       const blockNumber = await publicClient.getBlockNumber();
       const res = (await publicClient.readContract({
@@ -117,7 +111,7 @@ export function TradeView() {
         account: address,
         blockNumber,
       })) as readonly [bigint, bigint, Hex];
-      return { amountIn: res[0], amountOut: res[1], orderHash: res[2], blockNumber, amount: amount! };
+      return { amountIn: res[0], amountOut: res[1], blockNumber, amount: amount! };
     },
   });
 
@@ -141,25 +135,30 @@ export function TradeView() {
   const needsApproval = !!(q && user.data && user.data.allowance < q.amountIn);
   const balanceIn = user.data ? (dir === "buy" ? user.data.weth : side === "LONG" ? user.data.long : user.data.short) : undefined;
   const insufficient = q && balanceIn !== undefined ? balanceIn < q.amountIn : false;
-  const canWrite = guard.state === "ok" && !!walletClient && !!address && !busy;
 
-  function pushTx(e: TxEntry) {
-    setTxs((t) => [e, ...t].slice(0, 6));
+  // Payout per whole token if the week settled at the projected volatility (derived, for orientation).
+  const projShare = w ? (w.finalized ? Number(w.payoutLong) / Number(w.S) : win.data?.vProj.ok ? Math.min(1, Number(win.data.vProj.value) / Number(w.vCap)) : undefined) : undefined;
+  const sideShare = projShare === undefined ? undefined : side === "LONG" ? projShare : 1 - projShare;
+
+  function pushTx(e: Omit<TxEntry, "id">) {
+    const idn = ++txSeq.current;
+    setTxs((t) => [{ ...e, id: idn }, ...t].slice(0, 4));
+    return idn;
   }
-  function patchTx(label: string, patch: Partial<TxEntry>) {
-    setTxs((t) => t.map((x) => (x.label === label && (x.status === "signing" || x.status === "pending") ? { ...x, ...patch } : x)));
+  function patchTx(idn: number, patch: Partial<TxEntry>) {
+    setTxs((t) => t.map((x) => (x.id === idn ? { ...x, ...patch } : x)));
   }
 
   async function send(label: string, run: () => Promise<Hash>) {
     setBusy(true);
-    pushTx({ label, status: "signing" });
+    const idn = pushTx({ label, status: "signing" });
     try {
       const hash = await run();
-      patchTx(label, { hash, status: "pending" });
+      patchTx(idn, { hash, status: "pending" });
       const r = await publicClient.waitForTransactionReceipt({ hash });
-      patchTx(label, { status: r.status === "success" ? "success" : "reverted" });
+      patchTx(idn, { status: r.status === "success" ? "success" : "reverted" });
     } catch (e) {
-      patchTx(label, { status: "error", detail: errMsg(e) });
+      patchTx(idn, { status: "error", detail: errMsg(e) });
     } finally {
       setBusy(false);
       qc.invalidateQueries({ queryKey: ["trade-user"] });
@@ -171,7 +170,7 @@ export function TradeView() {
   function approve() {
     if (!q || !tokenIn || !walletClient || !address) return;
     // The taker pays the ROUTER: in Aqua mode SwapVM does safeTransferFrom(taker -> router) then AQUA.push.
-    void send(`Approve ${fmtWad(q.amountIn, 6)} ${inSym} for router`, () =>
+    void send(`Approve ${fmtToken(q.amountIn, inSym)}`, () =>
       walletClient.writeContract({ address: tokenIn, abi: erc20Abi, functionName: "approve", args: [d.router, q.amountIn], chain: forkChain, account: address }),
     );
   }
@@ -179,7 +178,7 @@ export function TradeView() {
   function swap() {
     if (!q || !order || !tokenIn || !tokenOut || !walletClient || !address || minOut === undefined) return;
     const traits = exactInSwapTraits(address, minOut);
-    void send(`Swap ${fmtWad(q.amountIn, 6)} ${inSym} → ≥ ${fmtWad(minOut, 6)} ${outSym}`, async () => {
+    void send(`${dir === "buy" ? "Buy" : "Sell"} ${fmtToken(dir === "buy" ? q.amountOut : q.amountIn, side)}`, async () => {
       const sim = await publicClient.simulateContract({
         address: d.router,
         abi: routerAbiWithErrors,
@@ -191,236 +190,249 @@ export function TradeView() {
     });
   }
 
+  // One button, one state.
+  let cta: { label: string; onClick?: () => void; disabled: boolean };
+  if (closed) cta = { label: w?.finalized ? "This week has settled" : "Trading closed for this week", disabled: true };
+  else if (!address) cta = { label: connect.isPending ? "Connecting…" : "Connect wallet", onClick: () => connectors[0] && connect.mutate({ connector: connectors[0] }), disabled: !connectors[0] || connect.isPending };
+  else if (guard.state === "wrong-chain") cta = { label: "Switch to the local fork", onClick: () => switchChain.mutate({ chainId: forkChain.id }), disabled: false };
+  else if (guard.state === "not-fork") cta = { label: "Wallet isn't on the local fork", disabled: true };
+  else if (guard.state === "checking") cta = { label: "Checking network…", disabled: true };
+  else if (amount === undefined) cta = { label: "Enter an amount", disabled: true };
+  else if (!q) cta = { label: quote.error ? "No quote for this size" : "Getting quote…", disabled: true };
+  else if (insufficient) cta = { label: `Not enough ${inSym}`, disabled: true };
+  else if (needsApproval) cta = { label: `Approve ${inSym}`, onClick: approve, disabled: busy };
+  else cta = { label: busy ? "Confirm in wallet…" : `${dir === "buy" ? "Buy" : "Sell"} ${side}`, onClick: swap, disabled: busy || !user.data };
+
+  const price = q && q.amountOut > 0n && q.amountIn > 0n ? (dir === "buy" ? (q.amountIn * WAD) / q.amountOut : (q.amountOut * WAD) / q.amountIn) : undefined;
+
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-2">
-        {WINDOW_KEYS.map((k) => (
-          <Pill key={k} active={k === windowKey} onClick={() => setWindowKey(k)}>
-            {WINDOW_LABELS[k]} <span className="text-ink-3">#{d.windows[k].toString()}</span>
-          </Pill>
-        ))}
-      </div>
+    <>
+      <PageHeader title="Trade cover" sub="Buy LONG if you expect UNI/ETH to swing this week, SHORT if you expect it to stay calm. Every claim is fully backed by WETH." />
 
-      {win.error && <Notice title="Cannot read this window" tone="error">{errMsg(win.error)}</Notice>}
+      {win.error && (
+        <div className="mb-4">
+          <ErrorNote title="Can't read this week from the fork">{errMsg(win.error)}</ErrorNote>
+        </div>
+      )}
 
-      {w && win.data && <WindowCard w={w} vProj={win.data.vProj} />}
-
-      <div className="grid gap-5 lg:grid-cols-[1.1fr_1fr]">
-        <Card title="Trade" subtitle="Exact-in swap against the vault's Aqua strategy through TremorAquaSwapVMRouter (instruction 0x22).">
-          <div className="flex flex-wrap gap-4">
-            <Segmented value={side} options={["LONG", "SHORT"]} onChange={(v) => setSide(v as SideName)} />
-            <Segmented value={dir} options={["buy", "sell"]} labels={{ buy: "Buy", sell: "Sell" }} onChange={(v) => setDir(v as Dir)} />
-          </div>
-          <label className="mt-4 block text-[12px] text-ink-2" htmlFor="amt">
-            You pay ({inSym}, exact)
-          </label>
-          <div className="mt-1 flex items-center rounded-md border border-line bg-surface-2 focus-within:border-accent">
-            <input
-              id="amt"
-              inputMode="decimal"
-              className="num w-full bg-transparent px-3 py-2 text-[18px] outline-none"
-              value={amountStr}
-              onChange={(e) => setAmountStr(e.target.value)}
-              placeholder="0.0"
-            />
-            <span className="px-3 text-[13px] text-ink-2">{inSym}</span>
-          </div>
-          {balanceIn !== undefined && (
-            <div className="mt-1 text-[12px] text-ink-3">
-              Balance: <span className="num">{fmtWad(balanceIn, 6)}</span> {inSym}
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,480px)_1fr] lg:justify-center xl:grid-cols-[480px_400px]">
+        {/* ---- swap card ---- */}
+        <section className="rounded-2xl border border-line bg-surface p-2">
+          <div className="flex items-center justify-between gap-3 px-3 pb-2 pt-2">
+            <div className="flex gap-1 rounded-lg bg-page p-1">
+              {(["buy", "sell"] as Dir[]).map((x) => (
+                <button key={x} onClick={() => setDir(x)} className={`rounded-md px-4 py-1.5 text-[14px] font-medium transition-colors ${dir === x ? "bg-hover text-ink" : "text-ink-3 hover:text-ink-2"}`}>
+                  {x === "buy" ? "Buy" : "Sell"}
+                </button>
+              ))}
             </div>
-          )}
-
-          <div className="mt-4 rounded-md border border-line bg-surface-2 p-3 text-[13.5px]">
-            {!order && win.data && !win.data.order.ok && <p className="text-loss">No strategy order: {win.data.order.error}</p>}
-            {amount === undefined && <p className="text-ink-3">Enter an amount.</p>}
-            {quote.isFetching && !q && <p className="text-ink-3">Quoting…</p>}
-            {quote.error && <p className="text-loss">Quote reverted: {errMsg(quote.error)}</p>}
-            {q && (
-              <dl className="num grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
-                <dt className="text-ink-2">You pay</dt>
-                <dd className="text-right font-semibold">
-                  {fmtWadExact(q.amountIn)} {inSym}
-                </dd>
-                <dt className="text-ink-2">You receive</dt>
-                <dd className="text-right font-semibold">
-                  {fmtWadExact(q.amountOut)} {outSym}
-                </dd>
-                <dt className="text-ink-2">Average price</dt>
-                <dd className="text-right">
-                  {q.amountOut > 0n && q.amountIn > 0n
-                    ? dir === "buy"
-                      ? `${fmtWad((q.amountIn * WAD) / q.amountOut, 6)} WETH per ${side}`
-                      : `${fmtWad((q.amountOut * WAD) / q.amountIn, 6)} WETH per ${side}`
-                    : "—"}
-                </dd>
-                <dt className="text-ink-2">Minimum received (1% slippage)</dt>
-                <dd className="text-right">
-                  {fmtWadExact(minOut!)} {outSym}
-                </dd>
-                <dt className="text-ink-2">Quoted at block</dt>
-                <dd className="text-right">{q.blockNumber.toString()}</dd>
-              </dl>
-            )}
-            {q && (
-              <p className="mt-2 text-[12px] text-ink-3">
-                Amounts are the exact return of <Mono>router.quote</Mono> for this size; quote and swap run the same pricing. The average price is those two numbers divided.
-              </p>
-            )}
+            <select
+              aria-label="Week"
+              value={windowKey}
+              onChange={(e) => setWindowKey(e.target.value as WindowKey)}
+              className="rounded-lg border border-line bg-page px-3 py-1.5 text-[13.5px] text-ink outline-none focus:border-signal"
+            >
+              {WINDOW_KEYS.map((k) => (
+                <option key={k} value={k}>
+                  {k === "live" ? "This week" : k === "oct2025" ? "Week of 6 Oct 2025" : "Week of 24 Feb 2025"}
+                </option>
+              ))}
+            </select>
           </div>
 
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            {needsApproval ? (
-              <button className="btn-primary" disabled={!canWrite || !q} onClick={approve}>
-                Approve {inSym} for router
+          <div className="grid grid-cols-2 gap-2 px-1">
+            {(["LONG", "SHORT"] as SideName[]).map((x) => (
+              <button
+                key={x}
+                onClick={() => setSide(x)}
+                className={`rounded-xl border p-3.5 text-left transition-colors ${side === x ? "border-signal/60 bg-signal/[0.07]" : "border-line hover:border-line-2"}`}
+              >
+                <div className="text-[14.5px] font-medium">{x}</div>
+                <div className="mt-0.5 text-[12.5px] text-ink-3">{x === "LONG" ? "Pays more if UNI/ETH swings" : "Pays more if UNI/ETH stays calm"}</div>
               </button>
-            ) : (
-              <button className="btn-primary" disabled={!canWrite || !q || insufficient || !user.data} onClick={swap}>
-                {dir === "buy" ? `Buy ${side}` : `Sell ${side}`}
-              </button>
-            )}
-            <WriteHint guard={guard.state} connected={!!address} insufficient={insufficient} inSym={inSym} />
+            ))}
+          </div>
+
+          <div className="mt-2 rounded-xl bg-page p-4">
+            <div className="flex items-center justify-between text-[13px] text-ink-3">
+              <label htmlFor="amt">You pay</label>
+              {balanceIn !== undefined && (
+                <button className="hover:text-ink-2" onClick={() => setAmountStr(formatUnits(balanceIn, 18))}>
+                  Balance {fmtToken(balanceIn)} <span className="text-signal-2">Max</span>
+                </button>
+              )}
+            </div>
+            <div className="mt-2 flex items-center gap-3">
+              <input
+                id="amt"
+                inputMode="decimal"
+                autoComplete="off"
+                className="num w-full min-w-0 bg-transparent text-[32px] font-medium tracking-tight outline-none placeholder:text-ink-3"
+                value={amountStr}
+                onChange={(e) => setAmountStr(e.target.value.replace(/[^0-9.]/g, ""))}
+                placeholder="0"
+              />
+              <Token sym={inSym} />
+            </div>
+          </div>
+
+          <div className="relative z-10 -my-3 flex justify-center">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg border-4 border-surface bg-hover text-ink-2" aria-hidden="true">
+              ↓
+            </span>
+          </div>
+
+          <div className="rounded-xl bg-page p-4">
+            <div className="text-[13px] text-ink-3">You receive</div>
+            <div className="mt-2 flex items-center gap-3">
+              <div className="num min-w-0 flex-1 truncate text-[32px] font-medium tracking-tight">
+                {closed ? <span className="text-ink-3">—</span> : q ? fmtToken(q.amountOut) : quote.isFetching ? <Skeleton className="h-8 w-40" /> : <span className="text-ink-3">0</span>}
+              </div>
+              <Token sym={outSym} />
+            </div>
+          </div>
+
+          {q && !closed && (
+            <dl className="num space-y-2 px-3 pb-1 pt-4 text-[13.5px]">
+              <Row k={`Price per ${side}`} v={price !== undefined ? fmtToken(price, "WETH") : "—"} />
+              <Row k="Minimum received" v={minOut !== undefined ? fmtToken(minOut, outSym) : "—"} info="The swap reverts if it would return less than this: the quote minus 1% slippage." />
+              {dir === "buy" && sideShare !== undefined && w && (
+                <Row
+                  k="Payout at projected volatility"
+                  v={fmtToken((q.amountOut * BigInt(Math.round(sideShare * 1e6)) * w.S) / 10n ** 6n / WAD, "WETH")}
+                  info={`What these ${side} tokens would pay if the week settled at today's projected volatility. An estimate, not a promise: the real payout depends on every Chainlink update until the week ends.`}
+                />
+              )}
+            </dl>
+          )}
+          {quote.error && !closed && <p className="px-3 pt-3 text-[13px] text-loss">The strategy can&apos;t fill this size. Try a smaller amount.</p>}
+
+          <div className="p-1 pt-4">
+            <button className="btn-primary w-full py-3.5 text-[15.5px]" disabled={cta.disabled} onClick={cta.onClick}>
+              {cta.label}
+            </button>
+            {!address && !closed && <p className="mt-2.5 text-center text-[12.5px] text-ink-3">Quotes work without a wallet.</p>}
+            {guard.state === "not-fork" && <p className="mt-2.5 text-center text-[12.5px] text-ink-3">Point your wallet&apos;s chain-1 RPC at http://127.0.0.1:8545 so nothing reaches real mainnet.</p>}
           </div>
 
           {txs.length > 0 && (
-            <ul className="mt-4 space-y-1 border-t border-line pt-3 text-[12.5px]">
-              {txs.map((t, i) => (
-                <li key={i} className="flex flex-wrap items-baseline gap-2">
-                  <Tag tone={t.status === "success" ? "measured" : t.status === "pending" || t.status === "signing" ? "neutral" : "warn"}>{t.status}</Tag>
-                  <span>{t.label}</span>
-                  {t.hash && <Mono title={t.hash}>{shortAddr(t.hash)}</Mono>}
-                  {t.detail && <span className="text-loss">{t.detail}</span>}
+            <ul className="mx-1 mb-1 mt-3 space-y-1.5 border-t border-line pt-3">
+              {txs.map((t) => (
+                <li key={t.id} className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px]">
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${t.status === "success" ? "bg-[#6fd29b]" : t.status === "signing" || t.status === "pending" ? "animate-pulse bg-ink-3" : "bg-loss"}`} />
+                  <span className="flex-1 truncate">
+                    {t.label}
+                    <span className="text-ink-3"> · {t.status === "signing" ? "confirm in wallet" : t.status}</span>
+                  </span>
+                  {t.hash && <CopyButton value={t.hash} />}
                 </li>
               ))}
             </ul>
           )}
-        </Card>
+        </section>
 
-        {w && win.data && <CollateralCard w={w} data={win.data} />}
+        {/* ---- week details ---- */}
+        <aside className="space-y-4">
+          <Panel
+            title={w ? windowName(windowKey, w) : "Week"}
+            action={w ? w.finalized ? <Chip tone="done">Settled</Chip> : windowKey === "live" ? <Chip tone="live">Open</Chip> : <Chip>Replay</Chip> : undefined}
+          >
+            {!w || !win.data ? (
+              <div className="space-y-3">
+                <Skeleton className="h-5 w-40" />
+                <Skeleton className="h-16 w-full" />
+                <Skeleton className="h-5 w-full" />
+              </div>
+            ) : (
+              <WeekDetails w={w} data={win.data} />
+            )}
+          </Panel>
+          <div className="px-1">
+            <MoreLink href="/app/contracts">Contracts, collateral and pricing method</MoreLink>
+          </div>
+        </aside>
       </div>
-    </div>
-  );
-}
-
-function WriteHint({ guard, connected, insufficient, inSym }: { guard: string; connected: boolean; insufficient: boolean; inSym: string }) {
-  let msg: string | null = null;
-  if (!connected) msg = "Connect a wallet to trade. Quotes work without one.";
-  else if (guard === "wrong-chain") msg = "Switch the wallet to chain id 1 (the local fork).";
-  else if (guard === "not-fork") msg = "Your wallet's chain-1 RPC is not http://127.0.0.1:8545. Point it at the local fork; trading is disabled so nothing reaches real mainnet.";
-  else if (guard === "checking") msg = "Checking that the wallet is on the local fork…";
-  else if (insufficient) msg = `Not enough ${inSym}.`;
-  return msg ? <span className="text-[12.5px] text-ink-2">{msg}</span> : null;
-}
-
-function WindowCard({ w, vProj }: { w: WindowView; vProj: { ok: true; value: bigint } | { ok: false; error: string } }) {
-  const payoutShort = w.S - w.payoutLong;
-  return (
-    <Card
-      title={`Window ${fmtDate(w.t0)} → ${fmtDate(w.t1)}`}
-      subtitle="LONG pays S · min(V, V_cap) / V_cap per token at settlement and SHORT pays the rest, where V is realized UNI/ETH variance from Chainlink rounds."
-      right={w.finalized ? <Tag tone="measured">finalized</Tag> : <Tag>open</Tag>}
-    >
-      <div className="grid grid-cols-2 gap-5 md:grid-cols-5">
-        <Stat label="S (LONG + SHORT pays)" value={`${fmtWad(w.S, 4)} WETH`} />
-        <Stat label="Variance cap" value={fmtPct(varianceToVol(w.vCap), 0) + " vol"} note={`V_cap = ${fmtWad(w.vCap, 4)}`} />
-        {w.finalized ? (
-          <>
-            <Stat label="LONG paid" value={`${fmtWad(w.payoutLong, 6)} WETH`} note="per whole token" />
-            <Stat label="SHORT paid" value={`${fmtWad(payoutShort, 6)} WETH`} note="per whole token" />
-          </>
-        ) : (
-          <>
-            <Stat
-              label="Projected variance"
-              value={vProj.ok ? fmtPct(varianceToVol(vProj.value), 1) + " vol" : "—"}
-              note={vProj.ok ? "realized so far + writer's forward, for pricing" : vProj.error}
-            />
-            <Stat label="Last Chainlink round used" value={w.lastUpdatedAt > 0n ? fmtDate(w.lastUpdatedAt) : "—"} />
-          </>
-        )}
-        <Stat label="Tokens" value={<Mono>{shortAddr(w.long)}</Mono>} note={<>SHORT <Mono>{shortAddr(w.short)}</Mono></>} />
-      </div>
-    </Card>
+    </>
   );
 }
 
 type WinData = Awaited<ReturnType<typeof loadWindow>>;
 
-function CollateralCard({ w, data }: { w: WindowView; data: WinData }) {
-  const sets = w.setsOutstanding;
-  const computedLocked = (sets * w.S) / WAD;
-  const locked = data.locked.ok ? data.locked.value : computedLocked;
-  const claims = data.supplyLong.ok && data.supplyShort.ok ? data.supplyLong.value + data.supplyShort.value : undefined;
-  // claims (whole tokens) per whole WETH of actual collateral
-  const ratio = claims !== undefined && locked > 0n ? Number((claims * 10_000n) / locked) / 10_000 : undefined;
-  const soldLong = data.vaultLong.ok ? sets - data.vaultLong.value : undefined;
-  const soldShort = data.vaultShort.ok ? sets - data.vaultShort.value : undefined;
+function WeekDetails({ w, data }: { w: WindowView; data: WinData }) {
+  const capVol = varianceToVol(w.vCap);
+  const vol = w.finalized ? undefined : data.vProj.ok ? varianceToVol(data.vProj.value) : undefined;
+  const longShare = w.finalized ? Number(w.payoutLong) / Number(w.S) : data.vProj.ok ? Math.min(1, Number(data.vProj.value) / Number(w.vCap)) : undefined;
+  const locked = data.locked.ok ? data.locked.value : (w.setsOutstanding * w.S) / WAD;
 
   return (
-    <Card
-      title="Effective vs actual collateral"
-      subtitle="Each set of 1 LONG + 1 SHORT is backed by exactly S WETH locked in VarianceMarket, so sets × S WETH backs 2 × sets claims. Read live from the market and the claim tokens."
-    >
-      <dl className="num grid grid-cols-[1fr_auto] gap-x-4 gap-y-2 text-[13.5px]">
-        <dt className="text-ink-2">Sets outstanding</dt>
-        <dd className="text-right">{fmtWad(sets, 4)}</dd>
-        <dt className="text-ink-2">Actual collateral (WETH locked)</dt>
-        <dd className="text-right">
-          {fmtWad(locked, 4)} <span className="text-ink-3 text-[12px]">{data.locked.ok ? "market.lockedWeth" : "sets × S"}</span>
-        </dd>
-        <dt className="text-ink-2">Claims outstanding (LONG + SHORT supply)</dt>
-        <dd className="text-right">{claims !== undefined ? fmtWad(claims, 4) : "—"}</dd>
-        <dt className="font-medium">Claims per WETH of collateral</dt>
-        <dd className="text-right font-semibold">{ratio !== undefined ? `${ratio.toFixed(2)}×` : "—"}</dd>
-      </dl>
-      <div className="mt-4 border-t border-line pt-3">
-        <div className="mb-2 text-[12px] font-medium text-ink-2">Vault inventory (shipped to Aqua, unsold)</div>
-        <dl className="num grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5 text-[13.5px]">
-          <dt className="text-ink-2">LONG in vault / sold</dt>
-          <dd className="text-right">
-            {data.vaultLong.ok ? fmtWad(data.vaultLong.value, 4) : "—"} / {soldLong !== undefined ? fmtWad(soldLong, 4) : "—"}
-          </dd>
-          <dt className="text-ink-2">SHORT in vault / sold</dt>
-          <dd className="text-right">
-            {data.vaultShort.ok ? fmtWad(data.vaultShort.value, 4) : "—"} / {soldShort !== undefined ? fmtWad(soldShort, 4) : "—"}
-          </dd>
-          <dt className="text-ink-2">WETH in vault (buyback reserve + proceeds)</dt>
-          <dd className="text-right">{data.vaultWeth.ok ? fmtWad(data.vaultWeth.value, 4) : "—"}</dd>
-        </dl>
-        <p className="mt-2 text-[12px] text-ink-3">&ldquo;Sold&rdquo; = sets outstanding − vault balance of that side.</p>
+    <div className="space-y-5 text-[13.5px]">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-ink-2">{fmtSpan(w.t0, w.t1)}</span>
+        <span className="text-ink-3">{w.finalized ? "Settled" : data.now < w.t1 ? `Settles in ${fmtDuration(w.t1 - data.now)}` : "Ready to settle"}</span>
       </div>
-      {data.order.ok && (
-        <p className="mt-3 break-all text-[11.5px] text-ink-3">
-          Strategy maker <Mono>{shortAddr(data.order.value.maker)}</Mono>, program {(data.order.value.data.length - 2) / 2} bytes.
-        </p>
+
+      {vol !== undefined && (
+        <div>
+          <div className="flex items-baseline justify-between">
+            <span className="flex items-center gap-1.5 text-ink-2">
+              Projected volatility
+              <InfoTip>Realized volatility from the Chainlink updates so far this week, blended with the writer&apos;s forecast for the rest. Used for pricing.</InfoTip>
+            </span>
+            <span className="num">
+              {Math.round(vol * 100)}% <span className="text-ink-3">/ {Math.round(capVol * 100)}% cap</span>
+            </span>
+          </div>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-line">
+            <div className="h-full rounded-full bg-signal" style={{ width: `${Math.min(100, (vol / capVol) * 100)}%` }} />
+          </div>
+        </div>
       )}
-    </Card>
-  );
-}
 
-function Pill({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-full border px-3.5 py-1.5 text-[13.5px] ${active ? "border-ink bg-ink text-page [&_span]:text-ink-3" : "border-line bg-surface hover:bg-hover"}`}
-    >
-      {children}
-    </button>
-  );
-}
+      {longShare !== undefined && (
+        <div className="grid grid-cols-2 gap-3">
+          <Split label={w.finalized ? "LONG paid" : "LONG would pay"} share={longShare} S={w.S} hot />
+          <Split label={w.finalized ? "SHORT paid" : "SHORT would pay"} share={1 - longShare} S={w.S} />
+        </div>
+      )}
 
-function Segmented({ value, options, labels, onChange }: { value: string; options: string[]; labels?: Record<string, string>; onChange: (v: string) => void }) {
-  return (
-    <div className="inline-flex rounded-md border border-line p-0.5">
-      {options.map((o) => (
-        <button
-          key={o}
-          onClick={() => onChange(o)}
-          className={`rounded px-3 py-1 text-[13.5px] ${value === o ? "bg-ink text-page" : "text-ink-2 hover:bg-hover"}`}
-        >
-          {labels?.[o] ?? o}
-        </button>
-      ))}
+      <dl className="num space-y-2 border-t border-line pt-4">
+        <Row k="Max payout per token" v={fmtToken(w.S, "WETH")} info="LONG pays this in full if realized volatility reaches the cap. LONG and SHORT together always pay exactly this." />
+        <Row k="LONG available" v={data.vaultLong.ok ? fmtToken(data.vaultLong.value) : "—"} />
+        <Row k="SHORT available" v={data.vaultShort.ok ? fmtToken(data.vaultShort.value) : "—"} />
+        <Row k="WETH backing" v={fmtToken(locked, "WETH")} info="Each LONG and SHORT pair is backed by exactly the max payout in WETH, locked in the market contract, so every claim can always be paid." />
+      </dl>
     </div>
+  );
+}
+
+function Split({ label, share, S, hot = false }: { label: string; share: number; S: bigint; hot?: boolean }) {
+  return (
+    <div className="rounded-xl border border-line bg-page p-3">
+      <div className="text-[12px] text-ink-3">{label}</div>
+      <div className={`num mt-1 text-[20px] font-medium ${hot ? "text-signal" : ""}`}>{Math.round(share * 1000) / 10}%</div>
+      <div className="num text-[12px] text-ink-3">{fmtToken((S * BigInt(Math.round(share * 1e6))) / 10n ** 6n, "WETH")} each</div>
+    </div>
+  );
+}
+
+function Row({ k, v, info }: { k: string; v: string; info?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <dt className="flex items-center gap-1.5 text-ink-2">
+        {k}
+        {info && <InfoTip>{info}</InfoTip>}
+      </dt>
+      <dd className="text-right">{v}</dd>
+    </div>
+  );
+}
+
+function Token({ sym }: { sym: string }) {
+  const color = sym === "WETH" ? "bg-[#6ea8ff]" : sym === "LONG" ? "bg-signal" : "bg-ink-3";
+  return (
+    <span className="flex shrink-0 items-center gap-2 rounded-full border border-line-2 bg-surface py-1.5 pl-1.5 pr-3 text-[14px] font-medium">
+      <span className={`h-5 w-5 rounded-full ${color}`} />
+      {sym}
+    </span>
   );
 }

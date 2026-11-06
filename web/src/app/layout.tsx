@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { JetBrains_Mono, Outfit } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
+import { StringTuneRuntime } from "@/components/StringTuneRuntime";
 
 const outfit = Outfit({ subsets: ["latin"], variable: "--font-outfit" });
 const jbmono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jbmono" });
@@ -16,7 +17,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={`${outfit.variable} ${jbmono.variable}`}>
       <body>
-        <Providers>{children}</Providers>
+        <Providers>
+          <StringTuneRuntime />
+          {children}
+        </Providers>
       </body>
     </html>
   );

@@ -171,23 +171,82 @@ body {
   animation: rail 3.6s cubic-bezier(0.6, 0, 0.4, 1) infinite;
 }
 
-/* Cursor spotlight on cards (set --mx/--my from Spotlight.tsx). */
-.spotlight {
+/* ---- StringTune outputs (data-string="…" elements; see StringTuneRuntime.tsx) --------- */
+
+/* Hero title: StringSplit chars rise line by line. Hidden until split, with a failsafe. */
+@keyframes st-char-up {
+  from { transform: translateY(105%); }
+  to { transform: none; }
+}
+@keyframes st-show {
+  to { opacity: 1; }
+}
+.split-chars:not(:has(.-s-char)) {
+  opacity: 0;
+  animation: st-show 0s 1.6s forwards;
+}
+.split-chars .-s-line {
+  overflow: hidden;
+  padding-bottom: 0.06em;
+  margin-bottom: -0.06em;
+}
+.split-chars .-s-char {
+  display: inline-block;
+  transform: translateY(105%);
+  animation: st-char-up 1s cubic-bezier(0.2, 0.7, 0.1, 1) forwards;
+  animation-delay: calc(120ms + var(--line-index, 0) * 140ms + var(--char-index, 0) * 16ms);
+}
+
+/* Section headings: StringSplit words slide up once their Reveal wrapper is in view. */
+.split-up .-s-line {
+  overflow: hidden;
+  padding-bottom: 0.08em;
+  margin-bottom: -0.08em;
+}
+.split-up .-s-word {
+  display: inline-block;
+  transform: translateY(110%);
+  transition: transform 900ms cubic-bezier(0.2, 0.7, 0.1, 1);
+  transition-delay: calc(var(--word-index, 0) * 45ms);
+}
+[data-shown="true"] .split-up .-s-word {
+  transform: none;
+}
+
+/* StringMagnetic: buttons lean toward the cursor. */
+.magnetic {
+  transform: translate3d(calc(var(--magnetic-x, 0) * 1px), calc(var(--magnetic-y, 0) * 1px), 0);
+  transition: background-color 160ms ease;
+}
+
+/* StringSpotlight: a soft red light that follows the cursor around the card. */
+.st-spotlight {
   position: relative;
+  overflow: hidden;
   isolation: isolate;
 }
-.spotlight::before {
+.st-spotlight::before {
   content: "";
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(420px circle at var(--mx, 50%) var(--my, -40%), rgb(242 69 43 / 0.13), transparent 60%);
+  top: 50%;
+  left: 50%;
+  width: 520px;
+  height: 520px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(242 69 43 / 0.16), transparent 62%);
+  transform: translate(-50%, -50%) rotate(calc((var(--spotlight-angle, 0) + 90) * 1deg)) translateY(calc(min(var(--spotlight-distance, 0), 260) * -1px));
   opacity: 0;
   transition: opacity 300ms ease;
+  pointer-events: none;
   z-index: -1;
 }
-.spotlight:hover::before {
+.st-spotlight:hover::before {
   opacity: 1;
+}
+
+/* StringProgress: page scroll progress bar on the landing page. */
+.page-progress {
+  transform: scaleX(var(--page-progress, 0));
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -209,5 +268,18 @@ body {
   .rail-pulse {
     animation: none;
     display: none;
+  }
+  .split-chars:not(:has(.-s-char)) {
+    opacity: 1;
+    animation: none;
+  }
+  .split-chars .-s-char,
+  .split-up .-s-word {
+    transform: none;
+    animation: none;
+    transition: none;
+  }
+  .magnetic {
+    transform: none;
   }
 }

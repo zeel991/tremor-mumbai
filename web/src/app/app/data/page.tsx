@@ -1,4 +1,5 @@
-import { Card, Tag } from "@/components/ui";
+import { Card } from "@/components/ui";
+import { Kpi, PageHeader } from "@/components/app/kit";
 import { WeeklyCharts } from "@/components/WeeklyCharts";
 import { OUTLIER_WEEK, POOL, summary, weeks } from "@/lib/dataset";
 import { fmtPct, fmtUsd } from "@/lib/format";
@@ -8,42 +9,28 @@ export const metadata = { title: "Data · Tremor" };
 export default function DataPage() {
   const { all, exOutlier, worst } = summary;
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-[22px] font-semibold tracking-tight">Two years of {POOL} on Ethereum mainnet</h1>
-        <p className="mt-1 text-[14px] text-ink-2">
-          {all.n} weeks, {summary.first} to {summary.last}. Per week: LP fees, the loss LPs took to arbitrageurs, and what was left.
-        </p>
-      </div>
+    <div className="space-y-4">
+      <PageHeader title="Data" sub={`Every swap in the ${POOL} pool on Ethereum, ${summary.first} to ${summary.last}, valued at Binance one-minute prices.`} />
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Headline
-          tag={<Tag tone="measured">measured</Tag>}
+        <Kpi
+          label="Fees taken by arbitrage"
           value={fmtPct(exOutlier.arbShare, 0)}
-          label="of LP fees went to arbitrage"
-          note={`${fmtUsd(exOutlier.arb / 1e6, 2)}M of ${fmtUsd(exOutlier.fees / 1e6, 2)}M, excluding the ${OUTLIER_WEEK} outlier week (${fmtPct(all.arbShare, 0)} with it).`}
+          sub={`${fmtUsd(exOutlier.arb / 1e6, 2)}M of ${fmtUsd(exOutlier.fees / 1e6, 2)}M in LP fees`}
+          info={`Excludes the week of ${OUTLIER_WEEK}, an outlier (${fmtPct(all.arbShare, 0)} with it).`}
         />
-        <Headline
-          tag={<Tag tone="measured">measured</Tag>}
-          value={`${all.losing} of ${all.n}`}
-          label="weeks LPs lost money"
-          note={`${fmtUsd(all.losingTotal)} in total. Worst: week of ${worst.week}, ${fmtUsd(worst.net)}.`}
-        />
-        <Headline
-          tag={<Tag tone="derived">derived · upper bound</Tag>}
-          value="up to 49%"
-          label="Premium rule backtest: recovers up to 49% of arbitrage loss (upper bound: assumes no volume lost)"
-          note="Rule: next week's hook fee = 0.5 × last week's loss ÷ volume, capped at 0.30%. 102 consecutive week pairs (data/backtest_premium.py)."
+        <Kpi label="Weeks LPs lost money" value={`${all.losing} of ${all.n}`} sub={`Worst: week of ${worst.week}, ${fmtUsd(worst.net)}`} info={`${fmtUsd(all.losingTotal)} lost across those weeks.`} />
+        <Kpi
+          label="Recoverable by the fee rule"
+          value="Up to 49%"
+          sub="Backtest over 102 week pairs"
+          info="Next week's fee = 0.5 × last week's loss ÷ volume, capped at 0.30%. An upper bound: it assumes the fee costs the pool no volume. Source: data/backtest_premium.py."
         />
       </div>
 
       <Card
-        title={
-          <span className="inline-flex flex-wrap items-center gap-2">
-            Weekly fees, arbitrage loss and LP net <Tag tone="measured">Measured: every swap, valued at Binance prices</Tag>
-          </span>
-        }
-        subtitle="Every swap in the pool, valued at the Binance 1-minute price at its second. Arbitrage loss = fees − LP net. Hover a chart to read a week."
+        title="Weekly fees, arbitrage loss and LP net"
+        subtitle="Arbitrage loss = fees minus LP net. Hover the chart to read a week."
       >
         <WeeklyCharts weeks={weeks} />
         <div className="mt-4 rounded-md border border-warn-line bg-warn-bg p-3 text-[13px] text-ink-2">
@@ -54,7 +41,7 @@ export default function DataPage() {
         </div>
       </Card>
 
-      <details className="rounded-lg border border-line bg-surface p-5 text-[13px]">
+      <details className="rounded-2xl border border-line bg-surface p-5 text-[13px]">
         <summary className="cursor-pointer font-medium">All {weeks.length} weeks as a table</summary>
         <div className="mt-3 overflow-x-auto">
           <table className="num w-full min-w-[720px]">
@@ -90,17 +77,6 @@ export default function DataPage() {
           </table>
         </div>
       </details>
-    </div>
-  );
-}
-
-function Headline({ value, label, note, tag }: { value: string; label: string; note: string; tag: React.ReactNode }) {
-  return (
-    <div className="rounded-lg border border-line bg-surface p-5">
-      <div className="mb-2">{tag}</div>
-      <div className="num text-[30px] font-semibold leading-none tracking-tight">{value}</div>
-      <div className="mt-2 text-[14px] font-medium">{label}</div>
-      <div className="mt-1 text-[12.5px] text-ink-2">{note}</div>
     </div>
   );
 }
