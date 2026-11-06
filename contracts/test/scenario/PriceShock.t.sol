@@ -54,7 +54,7 @@ contract PriceShockScenario is Test {
     address internal constant REAL_UNI_ETH = 0xD6aA3D25116d8dA79Ea0246c4826EB951872e02e;
     address internal constant UNI_WHALE = 0x1a9C8182C09F50C8318d769245beA52c32BE35BC;
     address internal constant FORWARDER = address(0xF0);
-    uint160 internal constant HOOK_FLAGS = 0x44;
+    uint160 internal constant HOOK_FLAGS = 0x547;
 
     uint256 internal constant S = 1e18;
     uint256 internal constant V_CAP = 2.25e18;
@@ -97,7 +97,7 @@ contract PriceShockScenario is Test {
         router = new TremorAquaSwapVMRouter(AQUA, WETH, address(this), "Tremor SwapVM", "1");
         vault = new TremorVault(address(this), AQUA, address(router), address(market));
         address hookAddr = address(uint160(0x5C5C << 144) | HOOK_FLAGS);
-        deployCodeTo("TremorHook.sol:TremorHook", abi.encode(PM, address(market), address(feed), address(this)), hookAddr);
+        deployCodeTo("TremorHook.sol:TremorHook", abi.encode(PM, address(market), address(feed), address(this), uint48(100)), hookAddr);
         hook = TremorHook(hookAddr);
         receiver = new TremorReceiver(FORWARDER, address(hook), address(market), start, 0.5e18, 1 days, false);
         op = new PoolOperator(PM);
@@ -111,6 +111,8 @@ contract PriceShockScenario is Test {
         PM.initialize(key, _sqrtOf(price));
         hook.setPoolKey(key);
         hook.setReceiver(address(receiver));
+        // oracle-latency guard: quotes pause while the pool (block-start price) is >2% from the last round
+        market.setReference(address(hook), 0.02e18);
 
         // tokens: LPs' liquidity, plus balances for the arbitrageur and swappers (this contract plays all of them)
         vm.prank(UNI_WHALE);
@@ -228,6 +230,7 @@ contract PriceShockScenario is Test {
         // re-anchor to the oracle (swappers' round trips leave a small drift)
         (cur,,,) = PM.getSlot0(key.toId());
         if (target != cur) _measured(target < cur, 0, target);
+        vm.roll(block.number + 1); // later calls (cover buy, readouts) happen in the next block
     }
 
     /// @dev swap and record the pool's side with the CRE formula (lvr.ts computeLvr), valued at the oracle price.

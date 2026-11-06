@@ -33,7 +33,8 @@ contract TremorForkTest is Test, TremorSystem {
     function _deployHook(address market, address owner) internal override returns (TremorHook) {
         address hookAddr = address(uint160(0x7E7E << 144) | HOOK_FLAGS);
         deployCodeTo(
-            "TremorHook.sol:TremorHook", abi.encode(IPoolManager(POOL_MANAGER), market, UNI_ETH_FEED, owner), hookAddr
+            "TremorHook.sol:TremorHook", abi.encode(IPoolManager(POOL_MANAGER), market, UNI_ETH_FEED, owner, PENALTY_BLOCKS),
+            hookAddr
         );
         return TremorHook(hookAddr);
     }

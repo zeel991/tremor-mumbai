@@ -53,7 +53,8 @@ contract DeploySepolia is Script {
     address internal constant MULTICALL3 = 0xcA11bde05977b3631167028862bE2a173976CA11;
     address internal constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
-    uint160 internal constant HOOK_FLAGS = 0x44; // afterSwap | afterSwapReturnDelta
+    uint160 internal constant HOOK_FLAGS = 0x547; // hook fee (0x44) + JIT liquidity penalty (0x503)
+    uint48 internal constant PENALTY_BLOCKS = 100;
 
     uint256 internal constant S = 1e15; // 0.001 WETH per LONG+SHORT pair
     uint256 internal constant SCALE = 1e3; // fork S (1e18) / S
@@ -128,13 +129,16 @@ contract DeploySepolia is Script {
         uint64 t0 = uint64(block.timestamp + vm.envOr("WINDOW_DELAY", uint256(30 minutes)));
         uint64 t1 = t0 + uint64(vm.envOr("WINDOW_HOURS", uint256(3)) * 1 hours);
         o.live = o.market.createWindow(t0, t1, S, V_CAP, V_FWD);
-        IERC20(WETH).transfer(address(o.vault), collateral);
+        IERC20(WETH).approve(address(o.vault), collateral);
+        o.vault.deposit(collateral, owner); // the writer's capital, as vault shares
         o.vault.openWindow(o.live, sets, BUYBACK, t1, keccak256("tremor-sepolia-live"));
         o.hook.setCover(address(o.vault), address(o.router), o.live);
         o.receiver.setCoverWindow(o.live);
         o.receiver.setStartBlock(uint64(block.number));
         // the simulation forwarder relays anyone's report: only our CRE signer (the deployer) may deliver
         o.receiver.setReportSubmitter(owner);
+        // freeze the report trust root: nobody can change the forwarder, workflow checks or submitter afterwards
+        o.receiver.renounceOwnership();
         vm.stopBroadcast();
         require(o.receiver.reportSubmitter() == owner, "submitter");
 
@@ -142,7 +146,7 @@ contract DeploySepolia is Script {
     }
 
     function _deployHook(address market, address uniFeed, address owner_) internal returns (TremorHook hook) {
-        bytes memory args = abi.encode(IPoolManager(POOL_MANAGER), market, uniFeed, owner_);
+        bytes memory args = abi.encode(IPoolManager(POOL_MANAGER), market, uniFeed, owner_, PENALTY_BLOCKS);
         bytes32 initHash = keccak256(abi.encodePacked(type(TremorHook).creationCode, args));
         bytes32 salt;
         address predicted;
@@ -151,7 +155,7 @@ contract DeploySepolia is Script {
             predicted = address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), CREATE2_DEPLOYER, salt, initHash)))));
             if (uint160(predicted) & 0x3FFF == HOOK_FLAGS && predicted.code.length == 0) break;
         }
-        hook = new TremorHook{salt: salt}(IPoolManager(POOL_MANAGER), market, uniFeed, owner_);
+        hook = new TremorHook{salt: salt}(IPoolManager(POOL_MANAGER), market, uniFeed, owner_, PENALTY_BLOCKS);
         require(address(hook) == predicted, "hook address mismatch");
         console2.log("hook mined with salt", uint256(salt), "at", address(hook));
     }

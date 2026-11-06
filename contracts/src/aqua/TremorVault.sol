@@ -4,6 +4,8 @@ pragma solidity 0.8.30;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IAqua} from "@1inch/aqua/src/interfaces/IAqua.sol";
 import {ISwapVM} from "swap-vm/interfaces/ISwapVM.sol";
 import {MakerTraitsLib} from "swap-vm/libs/MakerTraits.sol";
@@ -14,13 +16,18 @@ import {IVarianceMarket, ITremorVault} from "../interfaces/ITremor.sol";
 /// @notice The writer's maker (docs/spec.md §6.5). Mints complete sets in VarianceMarket (S WETH each) and ships ONE
 ///         Aqua strategy per window holding [WETH, LONG, SHORT]. nSets*S WETH backs 2*nSets claims, and because every
 ///         claim token is a fully backed half of a set, over-committing the strategy cannot create unbacked liability.
+///         Writers: anyone deposits WETH for vault shares and redeems shares for WETH, but only while no window is
+///         open, when every asset is plain WETH in the vault (so a deposit never buys into a running position at a
+///         stale price). The owner is the operator: it opens, docks and settles windows with pooled WETH and has no
+///         way to withdraw it. Shares use OpenZeppelin's virtual-offset maths against the first-depositor inflation attack.
 /// @dev Approves the Aqua REGISTRY (never the router). Program: Salt(0x14) . Deadline(0x0d) . CappedPayoffCurve(0x22).
-contract TremorVault is ITremorVault, Ownable {
+contract TremorVault is ITremorVault, ERC20, Ownable {
     using SafeERC20 for IERC20;
 
     uint8 internal constant OP_DEADLINE = 0x0d;
     uint8 internal constant OP_SALT = 0x14;
     uint8 internal constant OP_CAPPED_PAYOFF_CURVE = 0x22;
+    uint256 internal constant SHARE_OFFSET = 1e3; // virtual shares (10^3) against share-price inflation
 
     IAqua public immutable aqua;
     address public immutable router;
@@ -30,11 +37,21 @@ contract TremorVault is ITremorVault, Ownable {
     mapping(uint256 => ISwapVM.Order) internal _orders;
     mapping(uint256 => bytes32) public strategyHash;
     mapping(uint256 => bool) public docked; // strategy removed from Aqua (no more quotes or fills)
+    mapping(uint256 => bool) public settled;
+    uint256 public openWindows; // opened and not yet settled
 
     error WindowAlreadyOpen();
     error WindowNotOpen();
+    error WindowsOpen();
+    error ZeroAmount();
 
-    constructor(address owner_, address aqua_, address router_, address market_) Ownable(owner_) {
+    event Deposit(address indexed from, address indexed to, uint256 assets, uint256 shares);
+    event Withdraw(address indexed from, address indexed to, uint256 assets, uint256 shares);
+
+    constructor(address owner_, address aqua_, address router_, address market_)
+        ERC20("Tremor Writer Share", "tWRITE")
+        Ownable(owner_)
+    {
         aqua = IAqua(aqua_);
         router = router_;
         market = IVarianceMarket(market_);
@@ -51,6 +68,7 @@ contract TremorVault is ITremorVault, Ownable {
     {
         if (strategyHash[id] != bytes32(0)) revert WindowAlreadyOpen();
         IVarianceMarket.WindowView memory w = market.window(id);
+        ++openWindows;
         market.mintSet(id, nSets);
         IERC20(w.long).forceApprove(address(aqua), type(uint256).max);
         IERC20(w.short).forceApprove(address(aqua), type(uint256).max);
@@ -120,10 +138,36 @@ contract TremorVault is ITremorVault, Ownable {
         uint256 l = IERC20(w.long).balanceOf(address(this));
         uint256 s = IERC20(w.short).balanceOf(address(this));
         if (l > 0 || s > 0) market.redeem(id, l, s);
+        if (strategyHash[id] != bytes32(0) && !settled[id]) {
+            settled[id] = true;
+            --openWindows;
+        }
     }
 
-    function withdraw(address to, uint256 amount) external onlyOwner {
-        weth.safeTransfer(to, amount);
+    // ------------------------------------------------------------------ writer shares
+
+    /// @notice WETH held by the vault. Counted only while no window is open (then every asset is plain WETH).
+    function totalAssets() public view returns (uint256) {
+        return weth.balanceOf(address(this));
+    }
+
+    function deposit(uint256 assets, address to) external returns (uint256 shares) {
+        if (openWindows != 0) revert WindowsOpen();
+        if (assets == 0) revert ZeroAmount();
+        shares = Math.mulDiv(assets, totalSupply() + SHARE_OFFSET, totalAssets() + 1);
+        if (shares == 0) revert ZeroAmount();
+        weth.safeTransferFrom(msg.sender, address(this), assets);
+        _mint(to, shares);
+        emit Deposit(msg.sender, to, assets, shares);
+    }
+
+    function redeem(uint256 shares, address to) external returns (uint256 assets) {
+        if (openWindows != 0) revert WindowsOpen();
+        if (shares == 0) revert ZeroAmount();
+        assets = Math.mulDiv(shares, totalAssets() + 1, totalSupply() + SHARE_OFFSET);
+        _burn(msg.sender, shares);
+        weth.safeTransfer(to, assets);
+        emit Withdraw(msg.sender, to, assets, shares);
     }
 
     function currentOrder(uint256 id) external view returns (ISwapVM.Order memory) {

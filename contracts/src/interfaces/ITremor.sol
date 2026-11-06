@@ -50,8 +50,14 @@ interface IVarianceMarket {
     error Stale();
     error OracleGap(uint80 roundId);
     error NotStuck();
+    /// @dev the market price (reference) has moved more than MAX_DEVIATION from the last Chainlink round: a round is
+    ///      about to land, so quotes pause instead of selling at the old price (oracle-latency guard)
+    error PriceMoved();
+
+    event ReferenceSet(address priceReference, uint256 maxDeviation);
 
     function WETH() external view returns (address);
+    function ALLOW_PAST_WINDOWS() external view returns (bool);
     function createWindow(uint64 t0, uint64 t1, uint256 S, uint256 vCap, uint256 vFwd) external returns (uint256 id);
     function mintSet(uint256 id, uint256 n) external;
     function burnSet(uint256 id, uint256 n) external;
@@ -84,10 +90,21 @@ interface ITremorVault {
     function openWindow(uint256 id, uint256 nSets, uint256 wethForBuybacks, uint64 deadline, bytes32 salt) external;
     function closeWindow(uint256 id) external;
     function settle(uint256 id) external;
-    function withdraw(address to, uint256 amount) external;
+    /// @notice writers deposit WETH for shares, and redeem shares for WETH, only while no window is open
+    function deposit(uint256 assets, address to) external returns (uint256 shares);
+    function redeem(uint256 shares, address to) external returns (uint256 assets);
+    function totalAssets() external view returns (uint256);
+    function openWindows() external view returns (uint256);
+    function docked(uint256 id) external view returns (bool);
     /// @dev returns abi-encoded ISwapVM.Order (kept as bytes so non-swap-vm code can call it)
     function currentOrderEncoded(uint256 id) external view returns (bytes memory);
     function strategyHash(uint256 id) external view returns (bytes32);
+}
+
+/// @notice A market price for the settlement feed's pair, used to pause quotes while a Chainlink round is pending.
+interface IPriceReference {
+    /// @return priceWad the reference price as an 18-decimal number in the feed's units; ok = false if unavailable
+    function referencePrice() external view returns (uint256 priceWad, bool ok);
 }
 
 interface ITremorHook {

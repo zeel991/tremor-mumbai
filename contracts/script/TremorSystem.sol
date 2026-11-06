@@ -35,7 +35,9 @@ abstract contract TremorSystem {
     address internal constant MULTICALL3 = 0xcA11bde05977b3631167028862bE2a173976CA11;
     address internal constant REF_V3_POOL = 0x1d42064Fc4Beb5F8aAF85F4617AE8b3b5B8Bd801;
 
-    uint160 internal constant HOOK_FLAGS = 0x44; // afterSwap | afterSwapReturnDelta
+    // afterSwap | afterSwapReturnDelta (hook fee) + afterAdd/RemoveLiquidity and their return deltas (JIT penalty)
+    uint160 internal constant HOOK_FLAGS = 0x547;
+    uint48 internal constant PENALTY_BLOCKS = 100; // ~20 min: liquidity removed sooner gives up its fees
     uint256 internal constant EPOCH_ORIGIN = 1_730_678_400; // Mon 2024-11-04 00:00 UTC
     uint64 internal constant OCT_2025 = 1_759_708_800; // Mon 2025-10-06 00:00 UTC
     uint64 internal constant FEB_2025 = 1_740_355_200; // Mon 2025-02-24 00:00 UTC
@@ -58,7 +60,7 @@ abstract contract TremorSystem {
         uint256 feb2025;
     }
 
-    /// @dev must deploy TremorHook(pm, market, feed, owner) at an address whose low 14 bits == HOOK_FLAGS
+    /// @dev must deploy TremorHook(pm, market, feed, owner, PENALTY_BLOCKS) at an address whose low 14 bits == HOOK_FLAGS
     function _deployHook(address market, address owner) internal virtual returns (TremorHook);
 
     function _deployCore(address owner) internal returns (Sys memory s) {
@@ -104,7 +106,7 @@ abstract contract TremorSystem {
         s.operator.addLiquidity(s.key, -887_220, 887_220, liquidity);
     }
 
-    /// @dev the vault must already hold sets*S + buyback WETH per window
+    /// @dev the vault must already hold sets*S + buyback WETH per window (writers' deposits)
     function _openWindows(Sys memory s, uint256 sets, uint256 buyback) internal {
         s.vault.openWindow(s.live, sets, buyback, uint64(block.timestamp + 7 days), keccak256("tremor-live"));
         s.vault.openWindow(s.oct2025, sets, buyback, uint64(block.timestamp + 30 days), keccak256("tremor-oct2025"));

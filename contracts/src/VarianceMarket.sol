@@ -8,11 +8,12 @@ import {FixedPointMathLib as FPM} from "solady/utils/FixedPointMathLib.sol";
 
 import {ClaimToken} from "./ClaimToken.sol";
 import {Pricing} from "./libraries/Pricing.sol";
-import {IVarianceMarket, Side} from "./interfaces/ITremor.sol";
+import {IVarianceMarket, IPriceReference, Side} from "./interfaces/ITremor.sol";
 
 interface IAggregatorV3 {
     function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80);
     function getRoundData(uint80 roundId) external view returns (uint80, int256, uint256, uint256, uint80);
+    function decimals() external view returns (uint8);
 }
 
 /// @title VarianceMarket
@@ -24,6 +25,9 @@ interface IAggregatorV3 {
 ///  - If the window can never settle normally (the proxy moved phase before a round >= t1 was seen, or a round
 ///    inside the window is unreadable while later rounds exist), anyone may settle it after FALLBACK_DELAY at the
 ///    forward variance fixed at creation, so claims stay redeemable and no one picks the outcome after the fact.
+///  - Oracle-latency guard (live build): a Chainlink round lands only after the market has already moved, so a trader
+///    who sees the move first could buy at the old price and sell after the round. When a price reference is set,
+///    quotes pause (PriceMoved) while the reference is more than maxDeviation away from the last ingested round.
 contract VarianceMarket is IVarianceMarket, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -44,6 +48,12 @@ contract VarianceMarket is IVarianceMarket, ReentrancyGuard {
     uint256 public immutable LAMBDA; // impact, WETH wei per whole token per whole token
     uint256 public immutable KAPPA; // skew, WETH wei per whole token of net inventory
     uint64 public immutable FINALIZE_DELAY;
+    /// @dev may set the price reference, once (the reference, e.g. the hook, is deployed after the market)
+    address public immutable DEPLOYER;
+
+    IPriceReference public priceReference;
+    uint256 public maxDeviation; // WAD fraction, e.g. 0.02e18
+    uint256 internal _refScale; // 10^(18 - feed decimals)
 
     struct Window {
         uint64 t0;
@@ -91,6 +101,21 @@ contract VarianceMarket is IVarianceMarket, ReentrancyGuard {
         LAMBDA = lambda;
         KAPPA = kappa;
         FINALIZE_DELAY = finalizeDelay;
+        DEPLOYER = msg.sender;
+    }
+
+    /// @notice One-time: the market price that pauses quotes while a Chainlink round is pending. It must quote the
+    ///         same pair as the feed. maxDeviation should sit above the feed's deviation threshold (else quotes pause
+    ///         between ordinary rounds) and below the smallest round move that beats the round-trip spread.
+    function setReference(address ref, uint256 maxDev) external {
+        require(msg.sender == DEPLOYER && address(priceReference) == address(0), "reference");
+        require(ref != address(0) && maxDev > 0 && maxDev < WAD, "params");
+        uint8 dec = feed.decimals();
+        require(dec <= 18, "decimals");
+        _refScale = 10 ** (18 - dec);
+        priceReference = IPriceReference(ref);
+        maxDeviation = maxDev;
+        emit ReferenceSet(ref, maxDev);
     }
 
     // ---------------------------------------------------------------- windows
@@ -279,6 +304,16 @@ contract VarianceMarket is IVarianceMarket, ReentrancyGuard {
         return (w.q * YEAR + w.vFwd * (T - e)) / T;
     }
 
+    /// @dev reverts PriceMoved if the market price has left the band around the last ingested round (fail closed)
+    function _checkReference(uint256 lastAnswer) internal view {
+        if (address(priceReference) == address(0)) return;
+        (uint256 ref, bool ok) = priceReference.referencePrice();
+        uint256 last = lastAnswer * _refScale;
+        if (!ok || ref == 0 || last == 0) revert PriceMoved();
+        uint256 diff = ref > last ? ref - last : last - ref;
+        if (FPM.mulDiv(diff, WAD, last) > maxDeviation) revert PriceMoved();
+    }
+
     /// @notice True when the window has ingested every public round in its phase (or already saw one at/after t1).
     function caughtUp(uint256 id) public view returns (bool) {
         Window storage w = _get(id);
@@ -306,6 +341,7 @@ contract VarianceMarket is IVarianceMarket, ReentrancyGuard {
         if (!ALLOW_PAST_WINDOWS) {
             if (block.timestamp >= w.t1) revert TooLate();
             if (!caughtUp(id)) revert Stale();
+            _checkReference(w.lastAnswer);
         }
         uint256 S = w.S;
         uint256 midL = Pricing.midLong(S, projectedVariance(id), w.vCap);

@@ -385,6 +385,6 @@ const FAQ = [
   },
   {
     q: "What are the known limits?",
-    a: "The numbers are pool-wide, so a single LP can do better or worse. Donations can be front-run by just-in-time liquidity; dripping them limits that but does not stop it. And the cover only works on a new v4 pool, so LPs would have to move to it.",
+    a: "The numbers are pool-wide, so a single LP can do better or worse. Liquidity that joins just for a payout and leaves within 100 blocks forfeits its share to the LPs who stayed (OpenZeppelin's liquidity penalty), but an LP that joins shortly before a payout and stays still gets a share. And the cover only works on a new v4 pool, so LPs would have to move to it.",
   },
 ];

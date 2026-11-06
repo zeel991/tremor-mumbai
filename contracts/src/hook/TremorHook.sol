@@ -12,19 +12,21 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
-import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
+import {SwapParams, ModifyLiquidityParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
+import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 
 import {BaseHook} from "@openzeppelin/uniswap-hooks/base/BaseHook.sol";
 import {BaseHookFee} from "@openzeppelin/uniswap-hooks/fee/BaseHookFee.sol";
+import {LiquidityPenaltyHook} from "@openzeppelin/uniswap-hooks/general/LiquidityPenaltyHook.sol";
 import {CurrencySettler} from "@openzeppelin/uniswap-hooks/utils/CurrencySettler.sol";
 
 import {ISwapVM} from "swap-vm/interfaces/ISwapVM.sol";
 import {TakerTraitsLib} from "swap-vm/libs/TakerTraits.sol";
 import {FixedPointMathLib as FPM} from "solady/utils/FixedPointMathLib.sol";
 
-import {IVarianceMarket, ITremorHook} from "../interfaces/ITremor.sol";
+import {IVarianceMarket, ITremorHook, ITremorVault, IPriceReference} from "../interfaces/ITremor.sol";
 
 interface IAggregatorV3Lite {
     function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80);
@@ -39,11 +41,24 @@ interface IVaultOrders {
 /// @notice Uniswap v4 hook (docs/spec.md §6.6): charges a capped HOOK fee (not an LP fee) sized by the CRE-measured
 ///         arbitrage loss, spends it on Tremor LONG variance cover through the Aqua/SwapVM router, and drip-donates
 ///         the cover payout back to in-range LPs.
-/// @dev Flags: afterSwap | afterSwapReturnDelta (0x44), via OpenZeppelin BaseHookFee (fee on the unspecified
-///      currency, minted to the hook as ERC-6909 claims). No external protocol call happens inside swap callbacks;
-///      the Aqua purchase runs in handleHookFees() OUTSIDE the PoolManager unlock.
-///      Pool: currency0 = UNI, currency1 = WETH.
-contract TremorHook is BaseHookFee, IUnlockCallback, ITremorHook, Ownable, ReentrancyGuardTransient {
+/// @dev Flags 0x547: afterSwap | afterSwapReturnDelta from OpenZeppelin BaseHookFee (fee on the unspecified currency,
+///      minted to the hook as ERC-6909 claims), and afterAddLiquidity | afterRemoveLiquidity (+ return deltas) from
+///      OpenZeppelin LiquidityPenaltyHook: liquidity removed within PENALTY_BLOCKS of being added gives up its fees,
+///      donations included, which are donated back to the LPs who stayed. That is what stops just-in-time liquidity
+///      from collecting the cover payout. No external protocol call happens inside swap callbacks; the Aqua purchase
+///      runs in handleHookFees() OUTSIDE the PoolManager unlock. Pool: currency0 = UNI, currency1 = WETH.
+///      The hook is also the market's price reference: the pool price at the start of the current block
+///      (same-block manipulation cannot move it), so quotes pause while a Chainlink round is pending.
+///      Admin: wiring is set once; afterwards anyone may rotate cover to the vault's next window.
+contract TremorHook is
+    BaseHookFee,
+    LiquidityPenaltyHook,
+    IUnlockCallback,
+    ITremorHook,
+    IPriceReference,
+    Ownable,
+    ReentrancyGuardTransient
+{
     using SafeERC20 for IERC20;
     using CurrencySettler for Currency;
     using StateLibrary for IPoolManager;
@@ -56,6 +71,7 @@ contract TremorHook is BaseHookFee, IUnlockCallback, ITremorHook, Ownable, Reent
     uint256 public constant HANDLE_INTERVAL = 1 hours;
     uint256 public constant FEED_MAX_AGE = 25 hours; // Chainlink UNI/ETH heartbeat is 24h
     uint256 internal constant FILL_SEARCH_STEPS = 16; // bisection steps for the largest fillable cover buy
+    uint64 public constant MAX_DRIP_BLOCKS = 50_400; // one week of blocks
 
     enum Action {
         REDEEM,
@@ -84,6 +100,15 @@ contract TremorHook is BaseHookFee, IUnlockCallback, ITremorHook, Ownable, Reent
     uint64 public dripStart;
     uint64 public dripBlocks = 300;
 
+    // LP fees withheld by the liquidity penalty (ERC-6909 claims owed back to those positions, never spent on cover)
+    uint256 public withheld0;
+    uint256 public withheld1;
+
+    // block-start price observation (see referencePrice)
+    uint160 internal _lastSqrtP; // pool price after the latest swap
+    uint160 internal _blockStartSqrtP; // pool price before the first swap of block _obsBlock
+    uint64 internal _obsBlock;
+
     error OnlyReceiver();
     error PremiumTooHigh();
     error TooSoon();
@@ -92,40 +117,158 @@ contract TremorHook is BaseHookFee, IUnlockCallback, ITremorHook, Ownable, Reent
     error NothingToClaim();
     error NoInRangeLiquidity();
     error WrongPool();
+    error AlreadySet();
+    error CoverNotSet();
+    error CoverNotExpired();
+    error BadWindow();
+
+    event CoverRotated(uint256 indexed windowId);
 
     /// @notice WETH left unspent because the strategy could not fill it (kept for the next handle or window)
     event CoverDeferred(uint256 indexed windowId, uint256 wethRetained);
     /// @notice UNI left unconverted because the conversion feed was unusable (0 bad answer, 1 stale, 2 incomplete)
     event ConversionSkipped(uint8 reason);
 
-    constructor(IPoolManager pm, address market_, address uniEthFeed_, address owner_)
+    constructor(IPoolManager pm, address market_, address uniEthFeed_, address owner_, uint48 penaltyBlocks)
         BaseHook(pm)
+        LiquidityPenaltyHook(penaltyBlocks)
         Ownable(owner_)
     {
         market = IVarianceMarket(market_);
         uniEthFeed = IAggregatorV3Lite(uniEthFeed_);
     }
 
-    // ------------------------------------------------------------------ admin (deploy/demo wiring)
+    // ------------------------------------------------------------------ admin (one-time wiring)
 
+    /// @notice One-time. The owner cannot later swap the receiver, vault, router or pool: those could redirect fees.
     function setReceiver(address r) external onlyOwner {
+        if (receiver != address(0)) revert AlreadySet();
         receiver = r;
     }
 
+    /// @notice One-time: the vault and router cover is bought from, and the first cover window.
     function setCover(address vault_, address router_, uint256 windowId) external onlyOwner {
+        if (vault != address(0)) revert AlreadySet();
         vault = vault_;
         router = router_;
         coverWindow = windowId;
+        emit CoverRotated(windowId);
     }
 
     function setPoolKey(PoolKey calldata key) external onlyOwner {
+        if (poolSet) revert AlreadySet();
         if (address(key.hooks) != address(this)) revert WrongPool();
         poolKey = key;
         poolSet = true;
+        (uint160 s,,,) = poolManager.getSlot0(key.toId());
+        _lastSqrtP = s;
     }
 
     function setDripBlocks(uint64 b) external onlyOwner {
-        dripBlocks = b == 0 ? 1 : b;
+        dripBlocks = b == 0 ? 1 : (b > MAX_DRIP_BLOCKS ? MAX_DRIP_BLOCKS : b);
+    }
+
+    /// @notice Permissionless: once the current cover window has ended, move cover to another window the same vault
+    ///         has open. Without this, fees would sit idle after every window until an admin acted.
+    function rotateCover(uint256 newId) external {
+        if (vault == address(0)) revert CoverNotSet();
+        IVarianceMarket.WindowView memory cur = market.window(coverWindow);
+        if (!cur.finalized && block.timestamp < cur.t1) revert CoverNotExpired();
+        if (newId == coverWindow) revert BadWindow();
+        IVarianceMarket.WindowView memory w = market.window(newId);
+        if (w.finalized || (!market.ALLOW_PAST_WINDOWS() && block.timestamp >= w.t1)) revert BadWindow();
+        ITremorVault v = ITremorVault(vault);
+        if (v.strategyHash(newId) == bytes32(0) || v.docked(newId)) revert BadWindow();
+        coverWindow = newId;
+        emit CoverRotated(newId);
+    }
+
+    // ------------------------------------------------------------------ hook permissions and callbacks
+
+    function getHookPermissions()
+        public
+        pure
+        override(BaseHookFee, LiquidityPenaltyHook)
+        returns (Hooks.Permissions memory p)
+    {
+        p.afterSwap = true;
+        p.afterSwapReturnDelta = true;
+        p.afterAddLiquidity = true;
+        p.afterRemoveLiquidity = true;
+        p.afterAddLiquidityReturnDelta = true;
+        p.afterRemoveLiquidityReturnDelta = true;
+    }
+
+    /// @dev records the block-start price, then charges the hook fee (BaseHookFee)
+    function _afterSwap(address sender, PoolKey calldata key, SwapParams calldata params, BalanceDelta delta, bytes calldata hookData)
+        internal
+        override(BaseHook, BaseHookFee)
+        returns (bytes4, int128)
+    {
+        if (_obsBlock != block.number) {
+            _blockStartSqrtP = _lastSqrtP;
+            _obsBlock = uint64(block.number);
+        }
+        (uint160 s,,,) = poolManager.getSlot0(key.toId());
+        _lastSqrtP = s;
+        return super._afterSwap(sender, key, params, delta, hookData);
+    }
+
+    function _afterAddLiquidity(
+        address sender,
+        PoolKey calldata key,
+        ModifyLiquidityParams calldata params,
+        BalanceDelta delta,
+        BalanceDelta feeDelta,
+        bytes calldata hookData
+    ) internal override(BaseHook, LiquidityPenaltyHook) returns (bytes4, BalanceDelta) {
+        return super._afterAddLiquidity(sender, key, params, delta, feeDelta, hookData);
+    }
+
+    function _afterRemoveLiquidity(
+        address sender,
+        PoolKey calldata key,
+        ModifyLiquidityParams calldata params,
+        BalanceDelta delta,
+        BalanceDelta feeDelta,
+        bytes calldata hookData
+    ) internal override(BaseHook, LiquidityPenaltyHook) returns (bytes4, BalanceDelta) {
+        return super._afterRemoveLiquidity(sender, key, params, delta, feeDelta, hookData);
+    }
+
+    /// @dev keep withheld LP fees out of the hook-fee balance that handleHookFees spends
+    function _takeFeesToHook(PoolKey calldata key, bytes32 positionKey, BalanceDelta feeDelta) internal override {
+        super._takeFeesToHook(key, positionKey, feeDelta);
+        withheld0 += uint128(feeDelta.amount0());
+        withheld1 += uint128(feeDelta.amount1());
+    }
+
+    function _settleFeesFromHook(PoolKey calldata key, bytes32 positionKey)
+        internal
+        override
+        returns (BalanceDelta w)
+    {
+        w = super._settleFeesFromHook(key, positionKey);
+        if (w.amount0() > 0) withheld0 -= uint128(w.amount0());
+        if (w.amount1() > 0) withheld1 -= uint128(w.amount1());
+    }
+
+    // ------------------------------------------------------------------ price reference (oracle-latency guard)
+
+    /// @notice Pool price (WETH per UNI, WAD) at the start of the current block. Arbitrage keeps the pool at the
+    ///         market price, so it moves before a Chainlink round lands; reading the block-start price means a trade
+    ///         in the same block cannot move it. False until the pool has a price.
+    function referencePrice() external view returns (uint256 priceWad, bool ok) {
+        if (!poolSet) return (0, false);
+        uint160 s;
+        if (_obsBlock == block.number) {
+            s = _blockStartSqrtP;
+        } else {
+            (s,,,) = poolManager.getSlot0(poolKey.toId());
+        }
+        if (s == 0) return (0, false);
+        priceWad = FPM.mulDiv(FPM.mulDiv(s, s, 1 << 96), 1e18, 1 << 96);
+        ok = true;
     }
 
     // ------------------------------------------------------------------ premium (set by CRE via TremorReceiver)
@@ -312,8 +455,8 @@ contract TremorHook is BaseHookFee, IUnlockCallback, ITremorHook, Ownable, Reent
         (Action action, uint256 amount) = abi.decode(data, (Action, uint256));
         PoolKey memory key = poolKey;
         if (action == Action.REDEEM) {
-            _redeemClaims(key.currency0);
-            _redeemClaims(key.currency1);
+            _redeemClaims(key.currency0, withheld0);
+            _redeemClaims(key.currency1, withheld1);
             _convertToWeth(key);
         } else {
             if (poolManager.getLiquidity(key.toId()) == 0) revert NoInRangeLiquidity();
@@ -323,9 +466,10 @@ contract TremorHook is BaseHookFee, IUnlockCallback, ITremorHook, Ownable, Reent
         return "";
     }
 
-    function _redeemClaims(Currency c) internal {
+    function _redeemClaims(Currency c, uint256 withheld) internal {
         uint256 bal = poolManager.balanceOf(address(this), c.toId());
-        if (bal == 0) return;
+        if (bal <= withheld) return;
+        bal -= withheld; // claims withheld from LP positions by the liquidity penalty are not hook fees
         c.settle(poolManager, address(this), bal, true); // burn ERC-6909 claims
         c.take(poolManager, address(this), bal, false); // receive ERC-20
     }
@@ -344,6 +488,11 @@ contract TremorHook is BaseHookFee, IUnlockCallback, ITremorHook, Ownable, Reent
         uint160 limit = uint160(FPM.sqrt(FPM.mulDiv(pLim, uint256(1) << 192, 1e18)));
         (uint160 sqrtP,,,) = poolManager.getSlot0(key.toId());
         if (limit <= TickMath.MIN_SQRT_PRICE || sqrtP <= limit) return;
+        // this swap skips the hook's own callbacks: record the block-start price and the new price here
+        if (_obsBlock != block.number) {
+            _blockStartSqrtP = sqrtP;
+            _obsBlock = uint64(block.number);
+        }
 
         BalanceDelta d = poolManager.swap(
             key, SwapParams({zeroForOne: true, amountSpecified: -int256(uniBal), sqrtPriceLimitX96: limit}), ""
@@ -352,6 +501,7 @@ contract TremorHook is BaseHookFee, IUnlockCallback, ITremorHook, Ownable, Reent
         int128 a1 = d.amount1();
         if (a0 < 0) key.currency0.settle(poolManager, address(this), uint256(uint128(-a0)), false);
         if (a1 > 0) key.currency1.take(poolManager, address(this), uint256(uint128(a1)), false);
+        (_lastSqrtP,,,) = poolManager.getSlot0(key.toId());
     }
 
     /// @dev UNI/ETH price as WAD, or a skip reason (0 bad answer, 1 stale, 2 incomplete round); max = usable.

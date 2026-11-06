@@ -27,7 +27,8 @@ abstract contract RedTeamBase is Test {
     address internal constant AQUA = 0x1111113CCf1426A8E30e2bfF5E005d929bF6a90a;
     address internal constant POOL_MANAGER = 0x000000000004444c5dc75cB358380D2e3dE08A90;
     address internal constant UNI_ADDR = address(0x1000000000000000000000000000000000000001); // sorts below WETH
-    uint160 internal constant HOOK_FLAGS = 0x44;
+    uint160 internal constant HOOK_FLAGS = 0x547;
+    uint48 internal constant PENALTY_BLOCKS = 100;
 
     uint256 internal constant V_CAP = 2.25e18;
     uint256 internal constant V_FWD = 0.33e18;
@@ -97,7 +98,7 @@ abstract contract RedTeamBase is Test {
         address hookAddr = address(uint160(0x7E7E << 144) | HOOK_FLAGS);
         deployCodeTo(
             "TremorHook.sol:TremorHook",
-            abi.encode(IPoolManager(POOL_MANAGER), address(market), address(uniFeed), address(this)),
+            abi.encode(IPoolManager(POOL_MANAGER), address(market), address(uniFeed), address(this), PENALTY_BLOCKS),
             hookAddr
         );
         hook = TremorHook(hookAddr);

@@ -24,7 +24,7 @@ contract DeployFork is Script, TremorSystem {
     address internal owner;
 
     function _deployHook(address market, address owner_) internal override returns (TremorHook hook) {
-        bytes memory args = abi.encode(IPoolManager(POOL_MANAGER), market, UNI_ETH_FEED, owner_);
+        bytes memory args = abi.encode(IPoolManager(POOL_MANAGER), market, UNI_ETH_FEED, owner_, PENALTY_BLOCKS);
         bytes32 initHash = keccak256(abi.encodePacked(type(TremorHook).creationCode, args));
         bytes32 salt;
         address predicted;
@@ -35,7 +35,7 @@ contract DeployFork is Script, TremorSystem {
             );
             if (uint160(predicted) & 0x3FFF == HOOK_FLAGS && predicted.code.length == 0) break;
         }
-        hook = new TremorHook{salt: salt}(IPoolManager(POOL_MANAGER), market, UNI_ETH_FEED, owner_);
+        hook = new TremorHook{salt: salt}(IPoolManager(POOL_MANAGER), market, UNI_ETH_FEED, owner_, PENALTY_BLOCKS);
         require(address(hook) == predicted, "hook address mismatch");
         console2.log("hook mined with salt", uint256(salt), "at", address(hook));
     }
@@ -48,7 +48,8 @@ contract DeployFork is Script, TremorSystem {
         _createWindows(s);
         _initPool(s);
         _seedLiquidity(s, 1e21);
-        IERC20(WETH).transfer(address(s.vault), 3 * (SETS + BUYBACK));
+        IERC20(WETH).approve(address(s.vault), 3 * (SETS + BUYBACK));
+        s.vault.deposit(3 * (SETS + BUYBACK), owner); // the writer's capital, as vault shares
         _openWindows(s, SETS, BUYBACK);
         vm.stopBroadcast();
 

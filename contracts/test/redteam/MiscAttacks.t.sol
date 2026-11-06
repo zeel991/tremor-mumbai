@@ -114,5 +114,7 @@ contract MiscAttacksTest is RedTeamBase {
         }
         console2.log("BEST attacker PnL (wei)");
         console2.logInt(best);
+        // 150 UNI is worth 0.375 WETH: the best sandwich earns under 10 bps of it (measured: about 5 bps)
+        assertLt(best, int256(uint256(150e18) * 0.0025e18 / 1e18 / 1000), "sandwich of the conversion < 10 bps");
     }
 }
