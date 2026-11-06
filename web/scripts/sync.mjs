@@ -83,7 +83,7 @@ write("full_104w.json", JSON.parse(readFileSync(dataPath, "utf8")));
 // ---- price-shock scenarios (contracts/test/scenario/PriceShock.t.sol) ----------------------
 const scenDir = join(repoDir, "data", "scenarios");
 const scenarios = {};
-for (const n of ["crash", "shock_then_calm", "calm"]) {
+for (const n of ["crash", "shock_then_calm", "calm", "calm_then_crash", "spike"]) {
   const f = join(scenDir, `${n}.ndjson`);
   if (existsSync(f)) scenarios[n] = readFileSync(f, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
 }

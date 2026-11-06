@@ -15,7 +15,7 @@
 | **1inch** | A **new SwapVM instruction (`0x22`, `CappedPayoffCurve`)** prices fully collateralized LONG/SHORT volatility claims from **one Aqua strategy** holding `[WETH, LONG, SHORT]`, on the **deployed Aqua registry**. |
 | **Uniswap** | A v4 **hook fee** (`BaseHookFee`, `afterSwap` + `afterSwapReturnDelta`) taken as ERC-6909 claims, converted in-pool, spent on cover, and **drip-`donate`d** back to in-range liquidity. |
 | **Chainlink** | A **CRE workflow** values every swap against exchange prices and reports the week's loss on-chain, which sets the fee. **Data Feeds** settle the claims from every readable Chainlink round in the week. |
-| **Proof** | 65/65 unit tests (including 10,508 cross-language pricing vectors and solvency invariants), 8/8 mainnet-fork tests with asserted historical results, 29 red-team tests (25 attacks on a mainnet fork against the real Aqua and v4 contracts, 4 local pricing fuzz tests), a two-week **price-shock stress test** you can replay in the app, a real `cre workflow simulate` backfill that set the fee to its cap, and a **live Sepolia deployment** with on-chain transactions. |
+| **Proof** | 65/65 unit tests (including 10,508 cross-language pricing vectors and solvency invariants), 8/8 mainnet-fork tests with asserted historical results, 29 red-team tests (25 attacks on a mainnet fork against the real Aqua and v4 contracts, 4 local pricing fuzz tests), a two-week **price-shock simulator** in the app whose five presets are recorded fork runs, a real `cre workflow simulate` backfill that set the fee to its cap, and a **live Sepolia deployment** with on-chain transactions. |
 | **Honesty** | We benchmarked Tremor against simply raising the LP fee: a dynamic fee earns more on average, **Tremor cuts the worst week by 43%**. Both numbers are in this README. |
 
 ## The problem, measured
@@ -107,17 +107,21 @@ flowchart LR
 <img src="docs/img/app-contracts.jpg" alt="Contracts page on Sepolia with Etherscan links"/>
 <sub><b>Contracts & method</b> on the live Sepolia deployment: every address with an Etherscan link, network state, weekly measurements and the formulas.</sub>
 
-### Stress test: watch the market react
+### Stress test: set the market, watch the protocol respond
 
-The app's **Stress test** page ([`/app/stress`](https://tremor-mumbai.vercel.app/app/stress)) plays back a two-week run recorded on a mainnet fork (the page itself sends no transactions), with the deployed Uniswap v4 PoolManager and 1inch Aqua and the live-build contracts. A controllable Chainlink-style feed moves UNI/ETH each day, and an arbitrageur moves the pool to it. Three scenarios:
+The app's **Stress test** page ([`/app/stress`](https://tremor-mumbai.vercel.app/app/stress)) is a simulator. Drag any day's UNI/ETH move over two weeks and the hook fee, the cover the hook buys on 1inch Aqua through `0x22`, the payout and the LPs' result update instantly. It runs the contracts' formulas in the browser ([`web/src/lib/sim.ts`](web/src/lib/sim.ts)): the v4 pool and its arbitrage, the CRE loss formula, the receiver's fee rule, `VarianceMarket.quote` (projected variance, spread, impact, inventory skew, the hook's 20-LONG cap) and settlement.
 
-| Scenario | Week 1 | Fee set for week 2 | Week 2 | Cover payout |
+The five presets are recorded contract runs on a mainnet fork ([`test/scenario/PriceShock.t.sol`](contracts/test/scenario/PriceShock.t.sol): deployed Uniswap v4 PoolManager and 1inch Aqua, live-build contracts, a controllable test price feed, measurements delivered through the receiver; not a CRE run). The simulator reproduces every recorded step of all five within 0.01% (fee, projected volatility, LONG quote, cover held, payout).
+
+| Condition | Week-2 fee | Cover bought | LONG paid | LPs in week 2: without → with Tremor |
 |---|---|---|---|---|
-| Crash, then crash | daily moves of 3–12% | 0.30% (cap) | daily moves of 5–14% | LONG pays in full; hook donates it to LPs |
-| Crash, then calm | daily moves of 3–12% | 0.30% (cap) | under 0.5% a day | LONG pays little: the cost of insurance |
-| Calm | under 0.5% a day | 0.0008% | under 0.5% a day | almost nothing bought or paid |
+| Crash, then crash | 0.30% | 0.131 LONG | 100% | −0.449 → −0.318 WETH |
+| Crash, then calm | 0.30% | 1.769 LONG | 0.1% | +0.143 → +0.145 WETH |
+| Calm, then crash | 0.0008% | 0.000 LONG | 100% | −0.498 → −0.498 WETH |
+| One-day spike | 0.30% | 0.637 LONG | 61.3% | −0.157 → +0.233 WETH |
+| Calm | 0.0008% | 0.005 LONG | 0.1% | +0.143 → +0.143 WETH |
 
-Step through day by day to see each part move. The pool follows the oracle, the LP loss is measured with the CRE formula, the fee is set at week close, the LONG price on Aqua climbs as volatility arrives, and the payout is donated to LPs. Source: [`test/scenario/PriceShock.t.sol`](contracts/test/scenario/PriceShock.t.sol). The feed is a test feed so the price can be moved on demand, and the measurements are delivered through the receiver; this is not a CRE run.
+The fee only rises after a week that hurt LPs, and cover only pays when its own week is volatile: Tremor helps most when a bad week follows a bad week, costs a little when calm follows a crash, and barely helps against a first shock after a quiet week. In a sustained crash, projected volatility passes the cap early in week 2, so cover is already priced at its full payout and the curve stops selling; the hook buys most of its cover in moderate conditions.
 
 ## Proof: every claim with its evidence
 

@@ -159,6 +159,22 @@ contract PriceShockScenario is Test {
         _run("shock_then_calm", wk1, wk2);
     }
 
+    /// @notice The weak case: a quiet week sets the fee near zero, so week 2's crash finds almost no cover.
+    ///         The first shock after calm is barely insured; protection builds up the week after.
+    function test_scenario_calm_then_crash() public {
+        int16[6] memory wk1 = [int16(40), -30, 20, -40, 30, -20];
+        int16[6] memory wk2 = [int16(-1000), 700, -1400, 600, -900, 500];
+        _run("calm_then_crash", wk1, wk2);
+    }
+
+    /// @notice One 15% day in each otherwise quiet week: the fee and the payout scale with the size of the move
+    ///         instead of switching fully on or off.
+    function test_scenario_spike() public {
+        int16[6] memory wk1 = [int16(20), -30, -1500, 40, -20, 30];
+        int16[6] memory wk2 = [int16(-20), 30, 40, -1500, 20, -30];
+        _run("spike", wk1, wk2);
+    }
+
     // ------------------------------------------------------------------ the two weeks
 
     function _run(string memory scenario, int16[6] memory wk1, int16[6] memory wk2) internal {
