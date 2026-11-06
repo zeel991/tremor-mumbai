@@ -3,7 +3,7 @@
   "chainId": 1,
   "creForwarder": "0xA3D1AD4Ac559a6575a114998AffB2fB2Ec97a7D9",
   "epochOrigin": 1730678400,
-  "forkBlock": 26351753,
+  "forkBlock": 26352198,
   "hook": "0x95DA3e5DC6Db6F5b2aF233D8DE0aE8ab75D34044",
   "market": "0x1112B060b6819098D694aDaee035340271011b5C",
   "multicall3": "0xcA11bde05977b3631167028862bE2a173976CA11",

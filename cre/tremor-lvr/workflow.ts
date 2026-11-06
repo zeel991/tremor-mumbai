@@ -76,7 +76,7 @@ export const configSchema = z.object({
 	maxToBlock: z.number().int().min(0),
 	blocksPerRun: z.number().int().positive().max(MAX_LOG_CALLS * MAX_LOG_CHUNK),
 	logChunk: z.number().int().positive().max(MAX_LOG_CHUNK),
-	binanceBaseUrl: z.string().url(),
+	binanceBaseUrl: z.string().regex(/^https?:\/\/[^\s/]+$/), // not .url(): it fails inside the CRE WASM runtime
 	source: z.discriminatedUnion('kind', [
 		z.object({ kind: z.literal('v3'), pool: address, feePips: z.number().int().min(0).max(1_000_000), ...tokenFields }),
 		z.object({ kind: z.literal('v4'), poolManager: address, poolId: bytes32, ...tokenFields }),

@@ -47,7 +47,7 @@ swaps skips the HTTP calls and reports zeros so the receiver still advances. If 
 
 **Maths** (`lvr.ts`, equal to `data/markout_pool.py`): price at second `t` = `open + (close − open)·clamp((t −
 candleOpen)/60, 0, 1)` of the last candle opened at or before `t`; `value = a0·P_UNI + a1·P_ETH`;
-`fee = feeRate · (a0 > 0 ? value0 : value1)`; `lvr = fee − value`; `volume = |a1|·P_ETH` (spec §7.5). All in
+`fee = feeRate · (a0 > 0 ? value0 : value1)`; `lvr = fee − value`; `volume = |a0|·P_UNI` (spec §7.5). All in
 WAD USD bigints, truncating division, so every node gets the same integers.
 
 ## Setup
@@ -78,7 +78,7 @@ It takes `receiver`, `multicall3`, `refV3Pool` (v3) or `poolManager` + `poolId` 
 - The demo week 2025-10-06 is blocks **23,515,012 – 23,565,080** (first blocks of 2025-10-06, -13 and -20 UTC:
   23,515,012, 23,565,081, 23,615,117; found by timestamp binary search on `rpc.mevblocker.io`).
 - The receiver in the current `fork.json` is `0xb10D1449D9506472C1DD8099e52dcb4bACfef927` (forkBlock
-  26,351,695). Re-run `make-config.ts` whenever `fork.json` changes.
+  26,352,198). Re-run `make-config.ts` whenever `fork.json` changes.
 
 ## Simulate against the Anvil fork
 
@@ -140,13 +140,27 @@ and (B) with real block timestamps. It exits non-zero if any TS/Python differenc
 
 ## Known limits
 
-- **Volume definition.** `markout_pool.py` reports `volume_usd = Σ|a0|·P_UNI`; spec §7.5 (and this workflow)
-  uses `Σ|a1|·P_ETH`. They differ when the pool trades away from Binance: in the 2025-10-10 21:00 UTC hour,
-  $3,399,280 vs $4,026,722. `validate.ts` checks both.
+- **Volume definition.** Volume is the token0 leg, `Σ|a0|·P_UNI`, the same as `markout_pool.py` and the backtest
+  the premium was calibrated on. The token1 leg (`Σ|a1|·P_ETH`) differs when the pool trades away from Binance:
+  in the 2025-10-10 21:00 UTC hour, $3,399,280 vs $4,026,722.
+- **`z.string().url()` fails inside the WASM runtime** (it passes under `bun test`), so `binanceBaseUrl` is
+  checked with a regex instead.
 - **Timestamp interpolation.** Per-swap time is linear in block number between the span's end timestamps, off by
   up to 11 s in the hours checked (missed slots). In the 2025-10-10 21:00 crash hour that moved LVR by $5,370 of
   $152,563 (3.5%); in a calm hour it was negligible.
 - **Head cap.** The span is capped by `maxToBlock` from the config, not by the chain head (reading the head would
   be a 16th EVM read). On the fork, `maxToBlock = forkBlock`. A live deployment needs a different cap.
-- Simulation was not run end to end here (needs `cre login`). Build, typecheck, handler tests and the validation
-  ran.
+- **Upstream timeouts.** On a public archive RPC, a historical `eth_getLogs` can time out and fail a run (4 of 46
+  attempts in the backfill below). The receiver's state doesn't change on a failed run, so rerunning
+  `backfill.sh` resumes where it stopped.
+
+## Simulation results (6 Nov 2026, Anvil fork of mainnet at block 26,352,198 from `rpc.mevblocker.io`)
+
+All of these were read back from the fork with `cast`, not taken from the simulator's own log.
+
+| Check | Result |
+|---|---|
+| First run | Span 23,515,012 – 23,516,211: 30 swaps, LVR $92.47, volume $30,119.10. The forwarder tx `0x3eec0e8a…5f9f6` succeeded, `TremorReceiver` emitted `Measured` with the same six values, and `lastProcessedBlock` moved from 0 to 23,516,211. |
+| Week of 6 Oct 2025 (epoch 48) | 41 reports covering blocks 23,515,012 – 23,564,211: **1,931 swaps, LVR $168,022, volume $11.32M**. The backtest (`data/full_104w.json`) has 1,957 swaps and $172,486 for the full week. The gap is the last 869 blocks (2.9 h), which the epoch-crossing run attributes to the next epoch, plus timestamp interpolation. |
+| Epoch close | The 42nd run (span 23,564,212 – 23,565,411) crossed into 13 Oct. It emitted `EpochClosed(48, lvr $168,022, volume $11.32M, 3000 pips)`, and `TremorHook.premiumPips()` went from 0 to **3,000** (the cap) using CRE reports alone. |
+| Premium vs backtest (spec §12 CRE gate) | Uncapped `K·LVR/volume` with K = 0.5 is 7,423 pips from the CRE data. The backtest rule in `data/backtest_premium.py`, applied to that week's backtest figures (volume derived as fees ÷ 0.3% ≈ $11.66M), gives about 7,400 pips. Both cap at **3,000**. |

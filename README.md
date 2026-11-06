@@ -60,7 +60,7 @@ All of these ran on an **Anvil fork of Ethereum mainnet**, against the deployed 
 - `bun test`: 4/4 pass.
 - `cre/scripts/validate.ts`: on a real crash hour (122 swaps), the TypeScript maths equals `data/markout_pool.py` to within $1e-5.
 - `cre workflow build` compiles.
-- **`cre workflow simulate` has NOT run.** It requires `cre login` with a Chainlink account, and the Anvil upstream must serve archive reads (see [`cre/README.md`](cre/README.md)). Until then, demo step F2 delivers measured reports through the forwarder by impersonation, and is labelled that way.
+- **`cre workflow simulate` ran on the fork** (6 Nov 2026, CLI v1.39.0, after `cre login`). Each run wrote a report through the mainnet MockKeystoneForwarder. A backfill of 42 runs over the week of 6 Oct 2025 measured 1,931 swaps and $168,022 of arbitrage loss (the backtest has $172,486 for the full week). The run that crossed into 13 Oct emitted `EpochClosed` and moved `TremorHook.premiumPips()` from 0 to **3,000**, from CRE data alone. Every figure was read back from the chain; details are in [`cre/README.md`](cre/README.md#simulation-results-6-nov-2026-anvil-fork-of-mainnet-at-block-26352198-from-rpcmevblockerio). Demo step F2 still delivers precomputed weekly reports through the forwarder by impersonation, because a 42-run backfill takes about 15 minutes.
 
 ## Run it
 

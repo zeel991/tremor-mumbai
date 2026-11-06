@@ -608,4 +608,4 @@ Recorded during the build, Fri 6 Nov 2026.
 | Phase change (§6.2) | `checkpoint` reverts | `finalize` also reverts `PhaseChanged` unless a round ≥ t1 was already seen in the window's phase | Never settle on partial data |
 | Mint after t1 | – | Reverts `TooLate` | The error name was wrong |
 | JIT penalty | optional | Not built; drip only | Cut for time (cut order #1). The residual risk is stated in the README |
-| CRE simulation | gate by hour 2 | Not run | Needs `cre login` (a human step) and an archive-capable Anvil upstream. Demo F2 delivers measured reports through the forwarder by impersonation, and is labelled that way |
+| CRE simulation | gate by hour 2 | Passed (6 Nov 2026) | After `cre login`, on an Anvil fork from `rpc.mevblocker.io`: the first run's `Measured` matched the simulator's values; a 42-run backfill of the week of 6 Oct 2025 emitted `EpochClosed` and set the premium to 3,000 pips, the same as the backtest rule (uncapped about 7,400 pips in both). `z.string().url()` had to be replaced, because it fails inside WASM. Demo F2 still uses impersonated precomputed reports for speed |
