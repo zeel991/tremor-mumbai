@@ -71,7 +71,7 @@ function build(root: HTMLElement): Geo | null {
   const gutter = Math.max(0, (W - CONTENT) / 2);
   const wide = gutter > 70;
   const mobile = W < 768;
-  const bw = wide ? 26 : mobile ? 12 : 16;
+  const bw = wide ? 32 : mobile ? 16 : 20;
   const edgeL = wide ? gutter / 2 : bw * 0.4;
   const edgeR = W - edgeL;
   const pts: Pt[] = [];
@@ -166,6 +166,22 @@ function backHalf(o: Occluder): string {
     .join(" ");
 }
 
+/** Pixel size of the dither and the densities used (out of 16). */
+const PX = 2;
+const DITHER_LEVELS = [4, 8, 13] as const;
+const BAYER = [
+  [0, 8, 2, 10],
+  [12, 4, 14, 6],
+  [3, 11, 1, 9],
+  [15, 7, 13, 5],
+];
+/** Cells of a 4×4 tile that are lit at `level`/16 coverage. */
+function bayerCells(level: number): [number, number][] {
+  const out: [number, number][] = [];
+  for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) if (BAYER[y][x] < level) out.push([x, y]);
+  return out;
+}
+
 export function ScrollBand() {
   const svgRef = useRef<SVGSVGElement>(null);
   const maskRef = useRef<SVGPathElement>(null);
@@ -252,7 +268,7 @@ export function ScrollBand() {
     <svg
       ref={svgRef}
       aria-hidden="true"
-      className="pointer-events-none absolute left-0 top-0 z-[45] opacity-60 md:opacity-100"
+      className="pointer-events-none absolute left-0 top-0 z-[45] opacity-75 md:opacity-100"
       width={geo?.w ?? 0}
       height={geo?.h ?? 0}
       viewBox={geo ? `0 0 ${geo.w} ${geo.h}` : undefined}
@@ -271,18 +287,21 @@ export function ScrollBand() {
                 <polygon points={backHalf(geo.orb)} />
               </clipPath>
             )}
-            <linearGradient id="band-sheen" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stopColor="#fbf7f1" />
-              <stop offset="0.55" stopColor="#efe7dc" />
-              <stop offset="1" stopColor="#e2d6c7" />
-            </linearGradient>
+            {/* Ordered (Bayer 4×4) dither tiles at three densities, in white only. */}
+            {DITHER_LEVELS.map((lvl) => (
+              <pattern key={lvl} id={`band-dither-${lvl}`} width={PX * 4} height={PX * 4} patternUnits="userSpaceOnUse">
+                {bayerCells(lvl).map(([x, y]) => (
+                  <rect key={`${x}-${y}`} x={x * PX} y={y * PX} width={PX} height={PX} fill="#fff" shapeRendering="crispEdges" />
+                ))}
+              </pattern>
+            ))}
           </defs>
           <g mask="url(#band-drawn)">
-            {/* shadow, cream ribbon, a red centre stripe and a flowing highlight on it */}
-            <path d={geo.d} transform="translate(0 9)" stroke="rgb(0 0 0 / 0.45)" strokeWidth={geo.bw} strokeLinecap="round" strokeLinejoin="round" />
-            <path d={geo.d} stroke="url(#band-sheen)" strokeWidth={geo.bw} strokeLinecap="round" strokeLinejoin="round" />
-            <path d={geo.d} stroke="#f2452b" strokeWidth={geo.bw * 0.3} strokeLinecap="round" strokeLinejoin="round" />
-            <path className="band-flow" d={geo.d} stroke="#ffd2c4" strokeWidth={Math.max(1.5, geo.bw * 0.1)} strokeLinecap="round" strokeDasharray="36 140" />
+            {/* Dither shading: sparse at the edges, dense in the core, plus a flowing core dash. */}
+            <path d={geo.d} stroke="url(#band-dither-4)" strokeWidth={geo.bw} strokeLinecap="round" strokeLinejoin="round" />
+            <path d={geo.d} stroke="url(#band-dither-8)" strokeWidth={geo.bw * 0.68} strokeLinecap="round" strokeLinejoin="round" />
+            <path d={geo.d} stroke="url(#band-dither-13)" strokeWidth={geo.bw * 0.34} strokeLinecap="round" strokeLinejoin="round" />
+            <path className="band-flow" d={geo.d} stroke="#fff" strokeWidth={Math.max(2, geo.bw * 0.12)} strokeLinecap="butt" strokeDasharray="36 140" />
           </g>
         </>
       )}
