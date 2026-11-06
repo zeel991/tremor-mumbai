@@ -21,10 +21,10 @@ export default function DataPage() {
         />
         <Kpi label="Weeks LPs lost money" value={`${all.losing} of ${all.n}`} sub={`Worst: week of ${worst.week}, ${fmtUsd(worst.net)}`} info={`${fmtUsd(all.losingTotal)} lost across those weeks.`} />
         <Kpi
-          label="Recoverable by the fee rule"
+          label="Funding from the fee rule"
           value="Up to 49%"
-          sub="Backtest over 102 week pairs"
-          info="Next week's fee = 0.5 × last week's loss ÷ volume, capped at 0.30%. An upper bound: it assumes the fee costs the pool no volume. Source: data/backtest_premium.py."
+          sub="of measured loss, upper bound, 102 week pairs"
+          info="Next week's fee = 0.5 × last week's loss ÷ volume, capped at 0.30%. This is funding raised, not loss recovered, and it assumes the fee costs the pool no volume. Paying the same fee straight to LPs earns more on average (data/benchmark_dynamic_fee.py)."
         />
       </div>
 

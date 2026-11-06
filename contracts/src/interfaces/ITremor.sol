@@ -45,6 +45,8 @@ interface IVarianceMarket {
     error NoQuote();
     error InsufficientInventory();
     error UnknownWindow();
+    /// @dev a newer Chainlink round is public but not yet ingested: call checkpoint() first
+    error Stale();
 
     function WETH() external view returns (address);
     function createWindow(uint64 t0, uint64 t1, uint256 S, uint256 vCap, uint256 vFwd) external returns (uint256 id);
@@ -57,6 +59,8 @@ interface IVarianceMarket {
     function window(uint256 id) external view returns (WindowView memory);
     function windowCount() external view returns (uint256);
     function projectedVariance(uint256 id) external view returns (uint256 vProj);
+    /// @notice true when every public Chainlink round before t1 has been ingested (quotes use current information)
+    function caughtUp(uint256 id) external view returns (bool);
 
     /// @param skewUnits inventory skew for `side` in whole-token units * 1e18 (WAD), positive = maker has sold more of `side`
     /// @param amount exact input (exactIn) or exact output (!exactIn), in token wei

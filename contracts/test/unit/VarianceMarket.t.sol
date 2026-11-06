@@ -865,3 +865,44 @@ contract VarianceMarketQuoteTest is MarketBase {
         } catch {}
     }
 }
+
+/// @dev Regression: the live market must not quote on stale Chainlink information (review finding, 6 Nov 2026).
+contract VarianceMarketStalenessTest is MarketBase {
+    function test_quote_reverts_when_newer_round_not_ingested() public {
+        feed.push(P, NOW - 1);
+        uint256 id = mkt.createWindow(NOW, NOW + WEEK, S_, VCAP, VFWD);
+        assertTrue(mkt.caughtUp(id));
+        (, uint256 outBefore) = mkt.quote(id, Side.LONG, true, true, 1e18, 0); // fresh: quotes
+
+        // a 3% move is published but nobody has checkpointed it yet
+        vm.warp(NOW + 1 hours);
+        feed.push(P * 103 / 100, NOW + 1 hours);
+        assertFalse(mkt.caughtUp(id));
+        vm.expectRevert(IVarianceMarket.Stale.selector);
+        mkt.quote(id, Side.LONG, true, true, 1e18, 0);
+
+        // once ingested, the quote prices the move: LONG is dearer, so 1 WETH buys fewer
+        mkt.checkpoint(id, 64);
+        assertTrue(mkt.caughtUp(id));
+        (, uint256 outAfter) = mkt.quote(id, Side.LONG, true, true, 1e18, 0);
+        assertGt(outAfter, 0);
+        assertLt(outAfter, outBefore);
+    }
+
+    function test_quote_reverts_after_window_end() public {
+        feed.push(P, NOW - 1);
+        uint256 id = mkt.createWindow(NOW, NOW + WEEK, S_, VCAP, VFWD);
+        vm.warp(NOW + WEEK);
+        vm.expectRevert(IVarianceMarket.TooLate.selector);
+        mkt.quote(id, Side.LONG, true, true, 1e18, 0);
+    }
+
+    function test_fork_demo_build_still_prices_unigested_history() public {
+        // the replay build deliberately prices a historical window before its rounds are ingested
+        feed.push(P, NOW - 3 days);
+        feed.push(P * 11 / 10, NOW - 2 days);
+        uint256 id = past.createWindow(uint64(NOW - 3 days) + 1, uint64(NOW - 3 days) + 1 + WEEK, S_, VCAP, VFWD);
+        assertFalse(past.caughtUp(id));
+        past.quote(id, Side.LONG, true, true, 1e18, 0);
+    }
+}

@@ -75,6 +75,8 @@ contract TremorHook is BaseHookFee, IUnlockCallback, ITremorHook, Ownable, Reent
 
     // drip schedule: `dripTotal` released linearly over `dripBlocks` blocks from `dripStart`
     uint256 public dripTotal;
+    mapping(uint256 => bool) public coverHeld; // windows this hook bought LONG in
+    mapping(uint256 => bool) public payoutClaimed; // windows already redeemed (one claim each)
     uint256 public dripDone;
     uint64 public dripStart;
     uint64 public dripBlocks = 300;
@@ -84,6 +86,7 @@ contract TremorHook is BaseHookFee, IUnlockCallback, ITremorHook, Ownable, Reent
     error TooSoon();
     error PoolNotSet();
     error NothingToDrip();
+    error NothingToClaim();
     error NoInRangeLiquidity();
     error WrongPool();
 
@@ -157,6 +160,11 @@ contract TremorHook is BaseHookFee, IUnlockCallback, ITremorHook, Ownable, Reent
     function _buyCover(uint256 wethIn) internal {
         IERC20 weth = IERC20(Currency.unwrap(poolKey.currency1));
         IVarianceMarket.WindowView memory w = market.window(coverWindow);
+        // A running window refuses stale quotes, so ingest any new Chainlink rounds first (permissionless,
+        // bounded). Historical replay windows (fork demo) are priced before ingestion on purpose: skip them.
+        if (block.timestamp < w.t1) {
+            try market.checkpoint(coverWindow, 64) {} catch {}
+        }
         ISwapVM.Order memory order = IVaultOrders(vault).currentOrder(coverWindow);
 
         bytes memory quoteTraits = _takerTraits(0, false);
@@ -166,6 +174,7 @@ contract TremorHook is BaseHookFee, IUnlockCallback, ITremorHook, Ownable, Reent
         weth.forceApprove(router, wethIn);
         (uint256 amountIn, uint256 amountOut,) =
             ISwapVM(router).swap(order, address(weth), w.long, wethIn, _takerTraits(minOut, true));
+        coverHeld[coverWindow] = true;
         emit CoverBought(coverWindow, amountIn, amountOut);
     }
 
@@ -183,10 +192,18 @@ contract TremorHook is BaseHookFee, IUnlockCallback, ITremorHook, Ownable, Reent
     // ------------------------------------------------------------------ payout -> LPs
 
     /// @notice After the cover window is finalized, redeem all LONG held and schedule the WETH for drip donation.
+    ///         Each window the hook bought cover in can be claimed once. Without that, anyone could call this with a
+    ///         window holding nothing (or send the hook 1 wei of LONG) to restart the drip and delay LP payouts.
     function claimPayout(uint256 windowId) external nonReentrant {
+        if (!coverHeld[windowId] || payoutClaimed[windowId]) revert NothingToClaim();
+        payoutClaimed[windowId] = true;
         IVarianceMarket.WindowView memory w = market.window(windowId);
         uint256 longBal = IERC20(w.long).balanceOf(address(this));
         uint256 out = market.redeem(windowId, longBal, 0);
+        if (out == 0) {
+            emit PayoutClaimed(windowId, 0); // LONG paid nothing: leave any running drip untouched
+            return;
+        }
         uint256 remaining = dripTotal - dripDone;
         dripTotal = remaining + out;
         dripDone = 0;

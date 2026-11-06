@@ -2,12 +2,14 @@
 
 ETHGlobal Mumbai 2026. Built from an empty repo after kickoff; prior work is disclosed in [`PRIOR_WORK.md`](PRIOR_WORK.md), and AI use in [`AI_USAGE.md`](AI_USAGE.md).
 
-> **In UNI/WETH 0.3%, arbitrage took 93% of LP fees over two years ($10.02M of $10.74M), and LPs lost money in 14 of 104 weeks.** One week (6 Oct 2025) cost them $137,516.
+> **Tremor is a Uniswap v4 hook that measures LP adverse selection with Chainlink CRE, buys capped variance on 1inch Aqua, and returns high-volatility payouts to the pool's in-range liquidity.**
+>
+> **Why:** in UNI/WETH 0.3% on Ethereum, our Binance-price markout estimates arbitrage loss equal to 93% of LP fees ($10.02M of $10.74M over 103 weeks, excluding one documented outlier week). LP net was negative in 14 of the 104 weeks. In the worst, 6 Oct 2025, measured loss was $172,486 against $34,971 of fees: LP net −$137,516.
 >
 > Tremor works in three steps:
 > 1. It measures each window's arbitrage loss with **Chainlink CRE**.
 > 2. It prices a capped **Uniswap v4 hook fee** from that measurement.
-> 3. It spends the fee on **variance cover**: LONG claims on realized UNI/ETH variance, sold out of one **1inch Aqua** strategy through a new **SwapVM instruction**. The cover settles from Chainlink UNI/ETH rounds and is **donated back to the pool's LPs**.
+> 3. It spends the fee on **variance cover**: LONG claims on realized UNI/ETH variance, sold out of one **1inch Aqua** strategy through a new **SwapVM instruction**. The cover settles on oracle-sampled variance (every Chainlink UNI/ETH round in the week) and is **donated to the pool's current in-range liquidity** (not necessarily the LPs who took the loss).
 
 The method behind these numbers: every swap valued at Binance 1-minute prices ([`data/README.md`](data/README.md)). This is our measurement, not a third-party figure.
 
@@ -30,21 +32,22 @@ The method behind these numbers: every swap valued at Binance 1-minute prices ([
 
 All of these ran on an **Anvil fork of Ethereum mainnet**, against the deployed contracts.
 
-**Unit and reference tests** (`forge test --match-path 'test/unit/*'`, 51/51 pass):
-- `reference/pricing_reference.py` is an independent exact-rational model written from the spec. It generated 10,508 pricing vectors (`contracts/test/vectors/`), and `Pricing` matches every one exactly.
+**Unit and reference tests** (`forge test --match-path 'test/unit/*'`, 54/54 pass). These are implementation checks, not an audit:
+- `reference/pricing_reference.py` is a separate exact-rational Python implementation of the same spec. It generated 10,508 cross-language reference outputs (`contracts/test/vectors/`), and `Pricing` matches every one exactly.
+- Staleness regression tests: the live market refuses to quote while a newer Chainlink round is uningested, and after the window ends.
 - Realized variance matches an 80-digit `ln` reference to within 1 wei per term.
 - Invariant fuzzing (mint, burn, finalize, redeem) keeps `WETH ≥ Σ locked` and keeps every claim redeemable.
 - The reference model found five pricing bugs, all now fixed: under-filled buys, over-taken sells, and three rounding errors.
 
-**Fork tests** (`forge test --match-path 'test/fork/*' -vv`, 7/7 pass):
+**Fork tests** (`forge test --match-path 'test/fork/*' -vv`, 7/7 pass on a fresh fork, 6 Nov 2026). The C1 numbers below are asserted in the test, not just logged:
 
 | Gate | Result |
 |---|---|
 | A1 | Router runtime is **21,935 bytes** (EIP-170 limit 24,576). Upstream AquaSwapVMRouter v1.0.2 builds to 20,541 bytes with this config, the same size as the deployed router. |
 | A2 | `quote` == `swap` for buys of 0.01/0.1/0.5/1 WETH and for a sell, all through `0x22` on the deployed Aqua. A SHORT buy works, and an oversized buy refuses to quote. |
-| C1 | The Oct-2025 week settled from **50 real UNI/ETH rounds**: 305% annualized vol, LONG pays the full S. The Feb-2025 week settled from **17 rounds**: 59.8% vol, LONG pays 0.159 S. |
+| C1 | Historical replay from real Chainlink round history: the Oct-2025 week settles from **50 rounds**, 305% oracle-sampled annualized vol, LONG pays the full S. The Feb-2025 week settles from **17 rounds**, 59.8% vol, LONG pays 0.159 S. |
 | U1 | The hook fee equals `ceil(gross·pips/1e6)` on the unspecified currency, in both directions. A stale premium charges 0. Access control holds. `handleHookFees` buys LONG via Aqua. |
-| E2E | CRE reports set the premium (1,500 pips) → fees → cover bought (0.2035 WETH → 1.029 LONG) → Chainlink settlement → **1.029 WETH drip-donated to LPs** → the vault docks and settles. |
+| E2E | Precomputed CRE reports delivered through an impersonated forwarder set the premium (1,500 pips) → fees → cover bought (0.2035 WETH → 1.029 LONG) → Chainlink settlement → **1.029 WETH drip-donated to in-range liquidity** → the vault docks and settles. A second payout claim, or a claim on a window the hook holds nothing in, reverts. (The real CRE simulation is the separate backfill below.) |
 
 **Demo run** (`demo/setup-fork.sh` then `demo/run-demo.sh`, one pass on a fresh fork; every step printed a transaction hash):
 
@@ -114,9 +117,29 @@ cd ../web && npm install && npm run dev
 - `demo/run-demo.sh` is one-shot per deploy, because it finalizes the replay window.
 - The web app reads `contracts/deployments/fork.json` and talks only to `127.0.0.1:8545`.
 
+## Equal-cost benchmark: dynamic LP fee vs Tremor cover
+
+`python3 data/benchmark_dynamic_fee.py`. The same weekly add-on, (A) paid straight to LPs as a dynamic fee, or (B) spent on LONG at the deployed ask (0.1967 per 1.0 max payout), with the payout to LPs. 102 week pairs, outlier excluded. LONG pays on Binance-sampled vol × 0.70 (the Chainlink/Binance ratio in both replayed weeks). B gets a flat price with unlimited depth and same-week payout, which flatters it.
+
+| LP net per week | Total | Mean | Sd | Worst week | Negative weeks |
+|---|---|---|---|---|---|
+| Today (no add-on) | $693,352 | $6,798 | $23,701 | −$137,516 | 14 |
+| A: dynamic LP fee | **$5,522,180** | **$54,139** | **$67,381** | −$124,446 | **1** |
+| B: Tremor LONG cover | $5,088,952 | $49,892 | $99,962 | **−$71,061** | 2 |
+
+**Reading:** a direct dynamic fee is better for expected value and smoothness. Tremor gives up about 8% of the add-on's value to cut the worst week by 43%. It reshapes the tail; it does not raise the mean. Retention (volume leaving because of the add-on) scales A and B alike: both stay above today's total down to roughly 13% retention under these flattering, composition-neutral assumptions.
+
+## Fixed after external review (6 Nov 2026)
+- **Stale quotes.** The live market quoted from stored state even when a newer Chainlink round was public, and after the window ended. It now reverts (`Stale`, `TooLate`) until `checkpoint()` catches up; the hook checkpoints a running cover window before buying.
+- **Drip griefing.** Anyone could call `claimPayout` with a window holding nothing and restart the donation drip, delaying LPs indefinitely. Each window the hook bought cover in can now be claimed once; a zero payout leaves the drip untouched.
+- The Sepolia deployment predates these fixes.
+
 ## Honest limits
 - **Pool-level data.** Individual LPs, especially narrow-range ones, can do better or worse than the pool total. LPs were net positive over two years (+$0.72M); the problem is thin, unpredictable margins.
-- **The backtest is an upper bound.** It says a premium of 0.5 × last week's loss ÷ volume, capped at 30 bps, would have recovered 49% of arbitrage loss, but it assumes the premium causes no lost volume.
+- **Funding, not recovery.** A premium of 0.5 × last week's loss ÷ volume, capped at 30 bps, would have raised funding equal to 49% of measured loss, assuming the premium costs the pool no volume. That is an upper bound on funding, not the share LPs get back.
+- **A dynamic LP fee beats Tremor on average.** See "Equal-cost benchmark" below: paying the same add-on straight to LPs earns more in total and swings less week to week. Tremor's case is the worst week.
+- **Recipients.** `donate` pays whoever is in range when the payout drips, including liquidity that arrived after the loss; the LPs who took the loss may have left.
+- **Wide prototype quote.** At the deployed parameters a LONG costs about 0.20 and sells for about 0.10 (1.0 maximum payout): a 0.10 spread on a 0.15 midpoint. Over the sample LONG returns 91% of its price, so SHORT writers are paid for supplying cover; depth is whatever the vault ships.
 - **Chainlink feed granularity.** The UNI/ETH feed updates about 4 times a day (2% deviation). A 7-day variance estimate was within about 9% of a high-frequency reference; daily estimates are noisy, so windows are at least 7 days. Chainlink-based vol is lower than our Binance-based vol: 305% vs 436% for Oct 2025, 60% vs 85% for Feb 2025.
 - **Demo replay.** The Oct/Feb-2025 windows are historical. Cover is bought at the writer's forward price *before* the window's rounds are ingested, then settled on the real rounds. `ALLOW_PAST_WINDOWS` exists only in the fork-demo build.
 - **JIT risk.** Donations can be front-run by just-in-time liquidity. Dripping limits the value per call but doesn't stop it; the OpenZeppelin `LiquidityPenaltyHook` port was cut for time.

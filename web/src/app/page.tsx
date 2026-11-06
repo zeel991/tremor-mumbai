@@ -43,8 +43,8 @@ export default function Landing() {
               Arbitrage took <span className="text-signal"><CountUp to={exOutlier.arbShare * 100} format="pct" /></span> of LP fees in UNI/WETH.
             </h2>
             <p className="mt-5 max-w-2xl text-[16px] leading-relaxed text-ink-2">
-              Every swap in the {POOL} pool on Ethereum over {all.n} weeks, valued at Binance one-minute prices. Arbitrageurs took{" "}
-              {fmtUsd(exOutlier.arb / 1e6, 2)}M of {fmtUsd(exOutlier.fees / 1e6, 2)}M in fees, and the losses land in the weeks the market moves.
+              We valued every swap in the {POOL} pool on Ethereum at Binance one-minute prices. Measured that way, arbitrage loss came to{" "}
+              {fmtUsd(exOutlier.arb / 1e6, 2)}M against {fmtUsd(exOutlier.fees / 1e6, 2)}M of fees over {exOutlier.n} weeks (one outlier week excluded), and it lands in the weeks the market moves.
             </p>
           </Reveal>
 
@@ -62,7 +62,7 @@ export default function Landing() {
           <div className="mt-6 grid gap-4 sm:grid-cols-3">
             <Stat delay={0} value={<CountUp to={all.losing} format="int" suffix={` of ${all.n}`} />} label="weeks LPs lost money" />
             <Stat delay={100} value={<CountUp to={-worst.net} format="usd" />} label={`lost in the week of ${fmtDay(worst.week)}`} />
-            <Stat delay={200} value={<CountUp to={exOutlier.net / 1e6} format="usdM" />} label="left for LPs over two years" />
+            <Stat delay={200} value={<CountUp to={exOutlier.net / 1e6} format="usdM" />} label="left for LPs, outlier week excluded" />
           </div>
         </div>
       </section>
@@ -105,8 +105,8 @@ export default function Landing() {
             <Eyebrow>The payout</Eyebrow>
             <h2 className="mt-4 max-w-3xl text-[34px] font-medium leading-[1.08] tracking-tight sm:text-[48px] split-up" data-string="split" data-string-split="word-line[start]">Cover pays more when the market moves more.</h2>
             <p className="mt-5 max-w-2xl text-[16px] leading-relaxed text-ink-2">
-              Each LONG claim pays out from the realized volatility of UNI/ETH over one week, read from every Chainlink price update in that week. Here are two real weeks,
-              settled on a mainnet fork.
+              Each LONG claim pays out from the volatility of UNI/ETH over one week, sampled from every Chainlink price update in the week. Two historical weeks,
+              replayed on a mainnet fork from real Chainlink history:
             </p>
           </Reveal>
           <div className="mt-14 grid gap-5 md:grid-cols-2">
@@ -227,7 +227,7 @@ function Hero() {
           Volatility cover for Uniswap LPs.
         </h1>
         <p className="fade-up mt-7 max-w-xl text-[17px] leading-relaxed text-ink-2 sm:text-[19px]" style={{ animationDelay: "650ms" }}>
-          Swappers pay a fee sized from measured arbitrage loss. It buys cover that pays LPs back when prices swing.
+          Swappers pay a fee sized from measured arbitrage loss. It buys cover that pays the pool&apos;s liquidity when prices swing.
         </p>
         <div data-band-cta className="fade-up mt-9 flex flex-wrap items-center gap-x-6 gap-y-3" style={{ animationDelay: "800ms" }}>
           <Link href={APP} data-string="magnetic" data-string-strength="0.35" data-string-radius="140" className="btn-primary magnetic px-6 py-3 text-[15px]">
@@ -345,15 +345,15 @@ const STEPS = [
   {
     n: "03",
     title: "Cover",
-    body: "The fee buys LONG claims on UNI/ETH volatility from a 1inch Aqua strategy. When a week settles, the payout is donated to the pool's LPs.",
+    body: "The fee buys LONG claims on UNI/ETH volatility from a 1inch Aqua strategy. When a week settles, the payout is donated to the pool's in-range liquidity.",
     tech: "1inch Aqua  ·  SwapVM instruction 0x22",
   },
 ];
 
 const PROOF = [
-  { value: "51 / 51", label: "unit and invariant tests pass" },
+  { value: "54 / 54", label: "unit and invariant tests pass" },
   { value: "7 / 7", label: "tests pass on a mainnet fork" },
-  { value: "10,508", label: "pricing cases match an independent model exactly" },
+  { value: "10,508", label: "pricing outputs match a separate Python model exactly" },
   { value: "3,000", label: "pips set by the Chainlink workflow alone, in simulation" },
 ];
 
@@ -364,7 +364,7 @@ const FAQ = [
   },
   {
     q: "What does an LP get?",
-    a: "Nothing to claim or manage. The hook holds the cover. When a week settles, it redeems its LONG claims for WETH and donates that WETH to in-range LPs over a few hundred blocks.",
+    a: "Nothing to claim or manage. The hook holds the cover. When a week settles, it redeems its LONG claims for WETH and donates that WETH to the liquidity in range at the time, over a few hundred blocks. That rewards current liquidity, not necessarily the LPs who took the loss.",
   },
   {
     q: "Is it live on mainnet?",
@@ -380,8 +380,8 @@ const FAQ = [
     ),
   },
   {
-    q: "How much of the loss does it recover?",
-    a: "In a backtest over the same two years, the fee rule would have recovered up to 49% of arbitrage loss. That is an upper bound: it assumes the fee costs the pool no volume.",
+    q: "Why not just raise the LP fee instead?",
+    a: "For average returns, you should. We ran both on the same two years: paying the same add-on straight to LPs earns about 8% more in total and swings less week to week. Spending it on Tremor cover instead cut the worst week from about -$124k to -$71k. Tremor is for LPs who want the tail cut, not a higher mean. The script is in the repo (data/benchmark_dynamic_fee.py).",
   },
   {
     q: "What are the known limits?",

@@ -248,6 +248,16 @@ contract VarianceMarket is IVarianceMarket, ReentrancyGuard {
         return (w.q * YEAR + w.vFwd * (T - e)) / T;
     }
 
+    /// @notice True when the window has ingested every public round in its phase (or already saw one at/after t1).
+    function caughtUp(uint256 id) public view returns (bool) {
+        Window storage w = _get(id);
+        if (w.doneIngesting || w.finalized) return true;
+        (uint80 latestId,,,,) = feed.latestRoundData();
+        if (uint16(latestId >> 64) != w.phaseId) return false; // feed moved phase: checkpoint() will revert
+        (bool ok,, uint64 nextUpdatedAt) = _round(w.lastRound + 1);
+        return !ok || nextUpdatedAt == 0;
+    }
+
     /// @notice Price a taker trade (spec §7.4). Used by the CappedPayoffCurve SwapVM instruction.
     function quote(uint256 id, Side side, bool takerBuys, bool exactIn, uint256 amount, int256 skewUnits)
         external
@@ -256,6 +266,14 @@ contract VarianceMarket is IVarianceMarket, ReentrancyGuard {
     {
         Window storage w = _get(id);
         if (w.finalized) revert NoQuote();
+        // Never price on stale information (live build). Without this, a trader who sees a new Chainlink round
+        // before anyone checkpoints it could buy at the old projected variance, and after t1 could trade with the
+        // realized variance already known. The fork-demo build (ALLOW_PAST_WINDOWS) prices historical windows
+        // before their rounds are ingested on purpose, so it keeps the old behaviour.
+        if (!ALLOW_PAST_WINDOWS) {
+            if (block.timestamp >= w.t1) revert TooLate();
+            if (!caughtUp(id)) revert Stale();
+        }
         uint256 S = w.S;
         uint256 midL = Pricing.midLong(S, projectedVariance(id), w.vCap);
         uint256 m = Pricing.skewed(side == Side.LONG ? midL : S - midL, KAPPA, skewUnits, S);

@@ -161,11 +161,14 @@ contract TremorForkTest is Test, TremorSystem {
         console2.log("Feb 2025 week: rounds", nFeb);
         console2.log("  annualized variance (WAD)", vFeb, "vol bps", FPM.sqrt(vFeb * 1e18) / 1e14);
         console2.log("  LONG payout per token (wei)", f.payoutLong);
-        assertGt(nOct, 0);
-        assertGt(nFeb, 0);
-        assertLe(o.payoutLong, S);
-        assertLe(f.payoutLong, S);
         assertTrue(o.finalized && f.finalized);
+        // The headline replay numbers are asserted, not just logged (README "Verified results").
+        assertEq(nOct, 50, "Oct 2025: 50 Chainlink rounds in the window");
+        assertEq(nFeb, 17, "Feb 2025: 17 Chainlink rounds in the window");
+        assertApproxEqAbs(FPM.sqrt(vOct * 1e18) / 1e14, 30_500, 100, "Oct 2025: ~305% annualized vol");
+        assertEq(o.payoutLong, S, "Oct 2025: vol above the 150% cap, LONG pays in full");
+        assertApproxEqAbs(FPM.sqrt(vFeb * 1e18) / 1e14, 5_980, 10, "Feb 2025: ~59.8% annualized vol");
+        assertApproxEqRel(f.payoutLong, 0.159e18, 0.01e18, "Feb 2025: LONG pays ~15.9% of S");
     }
 
     // ------------------------------------------------------------------ U1
@@ -262,6 +265,11 @@ contract TremorForkTest is Test, TremorSystem {
         s.market.finalize(s.oct2025);
         s.hook.claimPayout(s.oct2025);
         uint256 total = s.hook.dripTotal();
+        // regression (review finding): nobody can restart the drip by re-claiming or claiming an unheld window
+        vm.expectRevert(TremorHook.NothingToClaim.selector);
+        s.hook.claimPayout(s.oct2025);
+        vm.expectRevert(TremorHook.NothingToClaim.selector);
+        s.hook.claimPayout(s.feb2025);
         console2.log("cover premium WETH spent / LONG held", wethSpent, longHeld);
         console2.log("payout WETH", total);
         assertEq(total, FPM.mulDiv(longHeld, s.market.window(s.oct2025).payoutLong, 1e18));
