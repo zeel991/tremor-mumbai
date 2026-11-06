@@ -33,6 +33,7 @@ const v3Config: Config = { ...base, source: { kind: 'v3', pool: V3_POOL, feePips
 const v4Config: Config = { ...base, source: { kind: 'v4', poolManager: PM, poolId: POOL_ID, ...tokens } }
 
 const LAST = 20_000_000n
+let HEAD = LAST + 5_000n // chain head served to live-mode runs
 const T0 = 1_760_130_011n // timestamp of block LAST+1
 const tsOf = (b: bigint) => T0 + (b - (LAST + 1n)) * 12n
 
@@ -65,8 +66,8 @@ const v4Logs: Array<[bigint, `0x${string}`]> = [
 	[LAST + 900n, v4Data(400n * E18, -(69n * E18) / 100n, 500)],
 ]
 
-const install = (config: Config, logs: Array<[bigint, `0x${string}`]>) => {
-	const calls = { lastProcessed: 0, timestamp: 0, filterLogs: 0, http: 0, write: 0 }
+const install = (config: Config, logs: Array<[bigint, `0x${string}`]>, klines = klineRows) => {
+	const calls = { lastProcessed: 0, head: 0, timestamp: 0, filterLogs: 0, http: 0, write: 0 }
 	const ranges: Array<[bigint, bigint]> = []
 	const filters: { addresses: string[]; topics: string[][] }[] = []
 	let written: Uint8Array | undefined
@@ -76,6 +77,10 @@ const install = (config: Config, logs: Array<[bigint, `0x${string}`]>) => {
 		if (to === RECEIVER) {
 			calls.lastProcessed++
 			return { data: hexToBase64(encodeAbiParameters(parseAbiParameters('uint64'), [LAST])) }
+		}
+		if (to === MULTICALL3.toLowerCase() && bytesToHex(req.call!.data).startsWith('0x42cbb15c')) {
+			calls.head++ // getBlockNumber() at latest
+			return { data: hexToBase64(encodeAbiParameters(parseAbiParameters('uint256'), [HEAD])) }
 		}
 		if (to === MULTICALL3.toLowerCase()) {
 			calls.timestamp++
@@ -106,7 +111,7 @@ const install = (config: Config, logs: Array<[bigint, `0x${string}`]>) => {
 	http.sendRequest = (req) => {
 		calls.http++
 		const sym = new URL(req.url).searchParams.get('symbol')!
-		return { statusCode: 200, body: Buffer.from(JSON.stringify(klineRows(sym))).toString('base64') }
+		return { statusCode: 200, body: Buffer.from(JSON.stringify(klines(sym))).toString('base64') }
 	}
 	const runtime = newTestRuntime<Config>(null, undefined, config)
 	return { runtime, calls, ranges, filters, report: () => written }
@@ -132,7 +137,7 @@ describe('tremor-lvr workflow', () => {
 	test('v3: call budget, filter queries, report == lvr.ts', () => {
 		const { runtime, calls, ranges, filters, report } = install(v3Config, v3Logs)
 		onCronTrigger(runtime, {} as never)
-		expect(calls).toEqual({ lastProcessed: 1, timestamp: 2, filterLogs: 12, http: 2, write: 1 })
+		expect(calls).toEqual({ lastProcessed: 1, head: 0, timestamp: 2, filterLogs: 12, http: 2, write: 1 })
 		// 12 contiguous <= 100-block chunks covering [LAST+1, LAST+1200]
 		expect(ranges[0][0]).toBe(LAST + 1n)
 		expect(ranges[11][1]).toBe(LAST + 1200n)
@@ -171,7 +176,44 @@ describe('tremor-lvr workflow', () => {
 	test('caught up: no write past maxToBlock', () => {
 		const { runtime, calls } = install({ ...v3Config, maxToBlock: Number(LAST) }, v3Logs)
 		expect(onCronTrigger(runtime, {} as never)).toBe('caught-up')
-		expect(calls).toEqual({ lastProcessed: 1, timestamp: 0, filterLogs: 0, http: 0, write: 0 })
+		expect(calls).toEqual({ lastProcessed: 1, head: 0, timestamp: 0, filterLogs: 0, http: 0, write: 0 })
+	})
+
+	test('live mode: head read, span capped at head - confirmations, still 15 EVM reads', () => {
+		HEAD = LAST + 5_000n
+		const cfg = { ...v3Config, maxToBlock: 0, confirmations: 64 }
+		const { runtime, calls, ranges } = install(cfg, v3Logs)
+		expect(onCronTrigger(runtime, {} as never)).not.toBe('caught-up')
+		// 11 log chunks (1,100 blocks) so the head read fits: 1 + 1 + 11 + 2 = 15
+		expect(calls).toEqual({ lastProcessed: 1, head: 1, timestamp: 2, filterLogs: 11, http: 2, write: 1 })
+		expect(ranges.at(-1)![1]).toBe(LAST + 1100n)
+	})
+
+	test('live mode: never measures unconfirmed blocks', () => {
+		HEAD = LAST + 300n
+		const { runtime, ranges, report } = install({ ...v3Config, maxToBlock: 0, confirmations: 64 }, v3Logs)
+		onCronTrigger(runtime, {} as never)
+		expect(ranges.at(-1)![1]).toBe(LAST + 236n)
+		expect(decodeReport(report()!)[1]).toBe(LAST + 236n)
+		HEAD = LAST + 64n // nothing confirmed past LAST
+		const r2 = install({ ...v3Config, maxToBlock: 0, confirmations: 64 }, v3Logs)
+		expect(onCronTrigger(r2.runtime, {} as never)).toBe('caught-up')
+		expect(r2.calls.filterLogs).toBe(0)
+	})
+
+	test('candles: a missing minute, a duplicate or a zero price fails the run (no report)', () => {
+		const drop = (sym: string) => klineRows(sym).filter((_, i) => i !== 150)
+		const dup = (sym: string) => {
+			const r = klineRows(sym)
+			r.splice(150, 0, r[150])
+			return r
+		}
+		const zero = (sym: string) => klineRows(sym).map((r, i) => (i === 150 ? [r[0], '0', r[2], r[3], r[4]] : r))
+		for (const bad of [drop, dup, zero]) {
+			const { runtime, calls } = install(v3Config, v3Logs, bad)
+			expect(() => onCronTrigger(runtime, {} as never)).toThrow()
+			expect(calls.write).toBe(0)
+		}
 	})
 
 	test('initWorkflow wires one cron handler', () => {

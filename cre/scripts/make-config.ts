@@ -10,7 +10,9 @@
 //   --max-to-block  never measure past this block (default: forkBlock).
 //   --network       fork (default) or sepolia. sepolia reads deployments/sepolia.json, writes
 //                   tremor-lvr/config.sepolia.json, uses the v4 source (the Tremor tUNI/WETH pool) and the
-//                   ethereum-testnet-sepolia chain. On a live chain pass --max-to-block <current head>.
+//                   ethereum-testnet-sepolia chain. Sepolia runs in live mode by default: no fixed cap
+//                   (maxToBlock 0) and each span ends at head - confirmations.
+//   --confirmations live mode: blocks behind the head that are never measured (default 64 on sepolia, 0 on fork).
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -106,7 +108,8 @@ const config = {
 	multicall3,
 	gasLimit: '5000000', // epoch close also calls hook.setPremium + market.checkpoint(…, 64); CRE cap is 10M
 	startBlock: intOpt('start-block') ?? forkBlock,
-	maxToBlock: intOpt('max-to-block') ?? forkBlock,
+	maxToBlock: intOpt('max-to-block') ?? (sepolia ? 0 : forkBlock),
+	confirmations: intOpt('confirmations') ?? (sepolia ? 64 : 0),
 	blocksPerRun,
 	logChunk: 100,
 	binanceBaseUrl: 'https://api.binance.com',

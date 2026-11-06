@@ -17,6 +17,7 @@ contract MockAggregatorV3 {
     uint16 public phaseId;
     mapping(uint16 => R[]) internal _rounds; // index k-1
     bool public revertGetRoundData;
+    mapping(uint16 => mapping(uint64 => bool)) public missing; // simulate an unreadable round inside a phase
 
     constructor(uint16 phase) {
         phaseId = phase;
@@ -24,6 +25,10 @@ contract MockAggregatorV3 {
 
     function setPhase(uint16 phase) external {
         phaseId = phase;
+    }
+
+    function setMissing(uint16 phase, uint64 k, bool v) external {
+        missing[phase][k] = v;
     }
 
     function setRevertGetRoundData(bool v) external {
@@ -61,7 +66,7 @@ contract MockAggregatorV3 {
         uint16 phase = uint16(roundId >> 64);
         uint64 k = uint64(roundId);
         R[] storage rs = _rounds[phase];
-        if (k == 0 || k > rs.length) return (0, 0, 0, 0, 0);
+        if (k == 0 || k > rs.length || missing[phase][k]) return (0, 0, 0, 0, 0);
         R storage r = rs[k - 1];
         return (roundId, r.answer, r.updatedAt, r.updatedAt, roundId);
     }

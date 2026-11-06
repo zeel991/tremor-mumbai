@@ -66,7 +66,7 @@ abstract contract TremorSystem {
         s.router = new TremorAquaSwapVMRouter(AQUA, WETH, owner, "Tremor SwapVM", "1");
         s.vault = new TremorVault(owner, AQUA, address(s.router), address(s.market));
         s.hook = _deployHook(address(s.market), owner);
-        s.receiver = new TremorReceiver(CRE_MOCK_FORWARDER, address(s.hook), address(s.market), EPOCH_ORIGIN, 0.5e18, 1 days);
+        s.receiver = new TremorReceiver(CRE_MOCK_FORWARDER, address(s.hook), address(s.market), EPOCH_ORIGIN, 0.5e18, 1 days, true);
         s.operator = new PoolOperator(IPoolManager(POOL_MANAGER));
         s.key = PoolKey({
             currency0: Currency.wrap(UNI),

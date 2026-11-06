@@ -5,6 +5,7 @@ import {Test, console2, Vm} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {VarianceMarket} from "../../src/VarianceMarket.sol";
+import {Pricing} from "../../src/libraries/Pricing.sol";
 import {IVarianceMarket, Side} from "../../src/interfaces/ITremor.sol";
 import {MockAggregatorV3} from "../mocks/MockAggregatorV3.sol";
 import {MockWETH} from "../mocks/MockWETH.sol";
@@ -904,5 +905,95 @@ contract VarianceMarketStalenessTest is MarketBase {
         uint256 id = past.createWindow(uint64(NOW - 3 days) + 1, uint64(NOW - 3 days) + 1 + WEEK, S_, VCAP, VFWD);
         assertFalse(past.caughtUp(id));
         past.quote(id, Side.LONG, true, true, 1e18, 0);
+    }
+}
+
+/// @dev Regression: oracle liveness (correctness review, 6 Nov 2026). An unreadable round below the latest round is a
+///      gap, not the end of the feed; a window that can never settle normally gets a deterministic fallback.
+contract VarianceMarketOracleLivenessTest is MarketBase {
+    uint64 internal constant FALLBACK = 7 days;
+
+    function test_internalGap_isNotCaughtUp_andCannotFinalize() public {
+        (uint256 id, uint64 t0, uint64 t1) = _liveWindow();
+        feed.push(P * 2, t0 + 100); // round 2 (hidden below)
+        feed.push(P * 4, t1); // round 3, the boundary round
+        feed.setMissing(1, 2, true);
+        assertEq(mkt.checkpoint(id, 100), 0);
+        assertFalse(mkt.caughtUp(id), "latest round is 3: missing round 2 is a gap");
+        vm.warp(t1 + DELAY);
+        vm.expectRevert(abi.encodeWithSelector(IVarianceMarket.OracleGap.selector, (uint80(1) << 64) | 2));
+        mkt.finalize(id);
+
+        // once the round is readable again, normal settlement resumes
+        feed.setMissing(1, 2, false);
+        mkt.checkpoint(id, 100);
+        assertTrue(mkt.caughtUp(id));
+        mkt.finalize(id);
+        assertTrue(mkt.window(id).finalized);
+    }
+
+    function test_endOfFeed_isCaughtUp() public {
+        (uint256 id, uint64 t0,) = _liveWindow();
+        feed.push(P * 2, t0 + 100);
+        mkt.checkpoint(id, 100);
+        assertTrue(mkt.caughtUp(id), "no later round exists: caught up");
+    }
+
+    function test_phaseChange_fallbackSettlesAtForwardVariance() public {
+        (uint256 id, uint64 t0, uint64 t1) = _liveWindow();
+        _mint(mkt, alice, id, 1e18);
+        feed.push(P * 2, t0 + 100);
+        mkt.checkpoint(id, 10);
+        feed.setPhase(2);
+        feed.push(P * 2, t0 + 200);
+        feed.push(P * 2, t1);
+
+        vm.warp(t1 + DELAY);
+        vm.expectRevert(IVarianceMarket.PhaseChanged.selector);
+        mkt.finalize(id);
+        // not before the fallback delay
+        vm.expectRevert(IVarianceMarket.TooEarly.selector);
+        mkt.settleFallback(id);
+
+        vm.warp(t1 + DELAY + FALLBACK);
+        vm.expectEmit(true, false, false, true);
+        emit IVarianceMarket.FallbackSettled(id, VFWD, Pricing.payoutLong(S_, VFWD, VCAP));
+        mkt.settleFallback(id);
+        IVarianceMarket.WindowView memory w = mkt.window(id);
+        assertTrue(w.finalized);
+        assertEq(w.payoutLong, Pricing.payoutLong(S_, VFWD, VCAP));
+
+        // claims are redeemable: one LONG + one SHORT returns exactly S
+        uint256 before = weth.balanceOf(alice);
+        vm.prank(alice);
+        mkt.redeem(id, 1e18, 1e18);
+        assertEq(weth.balanceOf(alice) - before, S_);
+        assertEq(mkt.lockedWeth(id), 0);
+    }
+
+    function test_gap_fallbackAfterDelay() public {
+        (uint256 id, uint64 t0, uint64 t1) = _liveWindow();
+        feed.push(P * 2, t0 + 100);
+        feed.push(P * 4, t1);
+        feed.setMissing(1, 2, true);
+        vm.warp(t1 + DELAY + FALLBACK);
+        mkt.settleFallback(id);
+        assertTrue(mkt.window(id).finalized);
+    }
+
+    function test_fallback_refusedWhenNormalSettlementWorks() public {
+        (uint256 id, uint64 t0, uint64 t1) = _liveWindow();
+        feed.push(P * 2, t0 + 100);
+        vm.warp(t1 + DELAY + FALLBACK);
+        // caught up at end of feed: finalize works, so the fallback is refused
+        vm.expectRevert(IVarianceMarket.NotStuck.selector);
+        mkt.settleFallback(id);
+        feed.push(P * 2, t1 + 1);
+        mkt.checkpoint(id, 10); // saw a round >= t1
+        vm.expectRevert(IVarianceMarket.NotStuck.selector);
+        mkt.settleFallback(id);
+        mkt.finalize(id);
+        vm.expectRevert(IVarianceMarket.AlreadyFinalized.selector);
+        mkt.settleFallback(id);
     }
 }

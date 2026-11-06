@@ -166,11 +166,22 @@ export const priceTimes60 = (k: Kline[], t: bigint): bigint => {
 	return c.open * 60n + (c.close - c.open) * dt
 }
 
-/** Klines must cover the span: first open <= tsFrom and last open >= tsTo - 60. */
+/**
+ * Klines must cover the span (first open <= tsFrom, last open >= tsTo - 60) with no holes: open times strictly
+ * increasing in exact 60-second steps, and every open/close positive. A missing minute would otherwise make
+ * priceTimes60 hold an old close across the gap, so the run fails instead of reporting.
+ */
 export const checkCoverage = (k: Kline[], tsFrom: bigint, tsTo: bigint, label: string): void => {
 	if (k.length === 0) throw new Error(`${label}: no klines`)
 	if (BigInt(k[0].openTime) > tsFrom) throw new Error(`${label}: klines start after span start`)
 	if (BigInt(k[k.length - 1].openTime) < tsTo - 60n) throw new Error(`${label}: klines end before span end`)
+	for (let i = 0; i < k.length; i++) {
+		if (k[i].openTime % 60 !== 0) throw new Error(`${label}: kline ${i} not on a minute boundary`)
+		if (k[i].open <= 0n || k[i].close <= 0n) throw new Error(`${label}: non-positive price in kline ${i}`)
+		if (i > 0 && k[i].openTime !== k[i - 1].openTime + 60) {
+			throw new Error(`${label}: klines not contiguous at ${k[i - 1].openTime} -> ${k[i].openTime}`)
+		}
+	}
 }
 
 // ---------- LVR ----------

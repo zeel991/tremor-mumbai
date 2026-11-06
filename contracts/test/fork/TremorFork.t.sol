@@ -14,6 +14,7 @@ import {FixedPointMathLib as FPM} from "solady/utils/FixedPointMathLib.sol";
 
 import {TremorSystem} from "../../script/TremorSystem.sol";
 import {TremorHook} from "../../src/hook/TremorHook.sol";
+import {TremorVault} from "../../src/aqua/TremorVault.sol";
 import {IVarianceMarket, ITremorHook} from "../../src/interfaces/ITremor.sol";
 
 /// @notice Fork gates A1, A2, U1, C1, E2E (docs/spec.md §12) against the DEPLOYED Aqua registry, v4 PoolManager and
@@ -122,11 +123,11 @@ contract TremorForkTest is Test, TremorSystem {
         assertEq(IERC20(WETH).balanceOf(alice) - wethBefore, sOut2, "WETH paid from vault via Aqua");
         console2.log("sell LONG in", sIn2, "WETH out", sOut2);
 
-        // collateral: sets*S WETH locked in the market backs 2*sets claims (I1)
-        (uint256 actual, uint256 claims) = s.vault.collateralView(s.live);
-        assertEq(actual, SETS * S / 1e18);
-        assertEq(claims, 2 * SETS);
-        assertGe(s.market.lockedWeth(s.live), actual);
+        // collateral: sets*S WETH locked in the market backs every issued LONG + SHORT (I1)
+        (uint256 locked, uint256 issued) = s.vault.collateralView(s.live);
+        assertEq(locked, s.market.lockedWeth(s.live));
+        assertGe(locked, SETS * S / 1e18);
+        assertEq(issued, SETS);
     }
 
     function test_A2_buyShortAndInventoryGuard() public {
@@ -169,6 +170,22 @@ contract TremorForkTest is Test, TremorSystem {
         assertEq(o.payoutLong, S, "Oct 2025: vol above the 150% cap, LONG pays in full");
         assertApproxEqAbs(FPM.sqrt(vFeb * 1e18) / 1e14, 5_980, 10, "Feb 2025: ~59.8% annualized vol");
         assertApproxEqRel(f.payoutLong, 0.159e18, 0.01e18, "Feb 2025: LONG pays ~15.9% of S");
+    }
+
+    // ------------------------------------------------------------------ U1b
+
+    /// @dev Correctness review, 6 Nov 2026: a WETH balance above the strategy's capacity must not revert fee
+    ///      handling. The hook buys the largest fillable amount and keeps the rest.
+    function test_U1b_oversizedBalanceBuysWhatFitsAndKeepsTheRest() public {
+        deal(WETH, address(s.hook), 100e18);
+        vm.warp(block.timestamp + 1 hours);
+        s.hook.handleHookFees(new Currency[](0));
+        uint256 longHeld = IERC20(s.market.window(s.oct2025).long).balanceOf(address(s.hook));
+        uint256 kept = IERC20(WETH).balanceOf(address(s.hook));
+        console2.log("oversized: LONG bought / WETH kept", longHeld, kept);
+        assertGt(longHeld, 0, "bought the fillable part");
+        assertGt(kept, 0, "kept the excess");
+        assertLt(kept, 100e18);
     }
 
     // ------------------------------------------------------------------ U1
@@ -281,10 +298,19 @@ contract TremorForkTest is Test, TremorSystem {
         s.hook.drip();
         assertEq(s.hook.dripDone(), total, "everything donated after dripBlocks");
 
-        // F6: writer closes and settles
+        // F6: writer closes and settles; a strategy cannot be docked twice
+        s.vault.closeWindow(s.oct2025);
+        vm.expectRevert(TremorVault.WindowNotOpen.selector);
         s.vault.closeWindow(s.oct2025);
         uint256 before = IERC20(WETH).balanceOf(address(s.vault));
         s.vault.settle(s.oct2025);
         assertGt(IERC20(WETH).balanceOf(address(s.vault)), before);
+
+        // settle on a still-shipped strategy docks it first (review finding): Feb window, never closed by hand
+        _ingestAll(s.feb2025);
+        s.market.finalize(s.feb2025);
+        assertFalse(s.vault.docked(s.feb2025));
+        s.vault.settle(s.feb2025);
+        assertTrue(s.vault.docked(s.feb2025));
     }
 }

@@ -33,6 +33,7 @@ interface IVarianceMarket {
     event Checkpoint(uint256 indexed id, uint80 fromRound, uint80 toRound, uint256 q);
     event Finalized(uint256 indexed id, uint256 variance, uint256 payoutLong);
     event Redeemed(uint256 indexed id, address indexed who, uint256 nLong, uint256 nShort, uint256 wethOut);
+    event FallbackSettled(uint256 indexed id, uint256 vFwd, uint256 payoutLong);
 
     error WindowTooShort();
     error PastWindow();
@@ -47,6 +48,8 @@ interface IVarianceMarket {
     error UnknownWindow();
     /// @dev a newer Chainlink round is public but not yet ingested: call checkpoint() first
     error Stale();
+    error OracleGap(uint80 roundId);
+    error NotStuck();
 
     function WETH() external view returns (address);
     function createWindow(uint64 t0, uint64 t1, uint256 S, uint256 vCap, uint256 vFwd) external returns (uint256 id);
@@ -54,10 +57,12 @@ interface IVarianceMarket {
     function burnSet(uint256 id, uint256 n) external;
     function checkpoint(uint256 id, uint256 maxRounds) external returns (uint256 ingested);
     function finalize(uint256 id) external;
+    function settleFallback(uint256 id) external;
     function redeem(uint256 id, uint256 nLong, uint256 nShort) external returns (uint256 wethOut);
 
     function window(uint256 id) external view returns (WindowView memory);
     function windowCount() external view returns (uint256);
+    function lockedWeth(uint256 id) external view returns (uint256);
     function projectedVariance(uint256 id) external view returns (uint256 vProj);
     /// @notice true when every public Chainlink round before t1 has been ingested (quotes use current information)
     function caughtUp(uint256 id) external view returns (bool);

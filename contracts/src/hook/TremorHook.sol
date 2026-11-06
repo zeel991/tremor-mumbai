@@ -28,6 +28,7 @@ import {IVarianceMarket, ITremorHook} from "../interfaces/ITremor.sol";
 
 interface IAggregatorV3Lite {
     function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80);
+    function decimals() external view returns (uint8);
 }
 
 interface IVaultOrders {
@@ -53,6 +54,8 @@ contract TremorHook is BaseHookFee, IUnlockCallback, ITremorHook, Ownable, Reent
     uint256 public constant MAX_CONVERT_SLIPPAGE = 0.01e18; // UNI->WETH vs Chainlink UNI/ETH
     uint256 public constant SLIP = 0.01e18; // min output on the Aqua purchase vs its quote
     uint256 public constant HANDLE_INTERVAL = 1 hours;
+    uint256 public constant FEED_MAX_AGE = 25 hours; // Chainlink UNI/ETH heartbeat is 24h
+    uint256 internal constant FILL_SEARCH_STEPS = 16; // bisection steps for the largest fillable cover buy
 
     enum Action {
         REDEEM,
@@ -89,6 +92,11 @@ contract TremorHook is BaseHookFee, IUnlockCallback, ITremorHook, Ownable, Reent
     error NothingToClaim();
     error NoInRangeLiquidity();
     error WrongPool();
+
+    /// @notice WETH left unspent because the strategy could not fill it (kept for the next handle or window)
+    event CoverDeferred(uint256 indexed windowId, uint256 wethRetained);
+    /// @notice UNI left unconverted because the conversion feed was unusable (0 bad answer, 1 stale, 2 incomplete)
+    event ConversionSkipped(uint8 reason);
 
     constructor(IPoolManager pm, address market_, address uniEthFeed_, address owner_)
         BaseHook(pm)
@@ -167,15 +175,54 @@ contract TremorHook is BaseHookFee, IUnlockCallback, ITremorHook, Ownable, Reent
         }
         ISwapVM.Order memory order = IVaultOrders(vault).currentOrder(coverWindow);
 
-        bytes memory quoteTraits = _takerTraits(0, false);
-        (, uint256 expectedOut,) = ISwapVM(router).quote(order, address(weth), w.long, wethIn, quoteTraits);
+        // Buy the largest amount the strategy can fill (its curve and LONG inventory are finite). Whatever does not
+        // fit stays in the hook for the next handle or window, so an oversized balance never reverts fee handling.
+        (uint256 spend, uint256 expectedOut) = _largestFill(order, address(weth), w.long, wethIn);
+        if (spend < wethIn) emit CoverDeferred(coverWindow, wethIn - spend);
+        if (spend == 0) return;
         uint256 minOut = FPM.mulDiv(expectedOut, 1e18 - SLIP, 1e18);
 
-        weth.forceApprove(router, wethIn);
+        weth.forceApprove(router, spend);
         (uint256 amountIn, uint256 amountOut,) =
-            ISwapVM(router).swap(order, address(weth), w.long, wethIn, _takerTraits(minOut, true));
+            ISwapVM(router).swap(order, address(weth), w.long, spend, _takerTraits(minOut, true));
         coverHeld[coverWindow] = true;
         emit CoverBought(coverWindow, amountIn, amountOut);
+    }
+
+    /// @dev full amount if it quotes; otherwise bisect for the largest amount that quotes (bounded steps).
+    function _largestFill(ISwapVM.Order memory order, address tokenIn, address tokenOut, uint256 amount)
+        internal
+        view
+        returns (uint256 spend, uint256 out)
+    {
+        bytes memory traits = _takerTraits(0, false);
+        (bool ok, uint256 o) = _tryQuote(order, tokenIn, tokenOut, amount, traits);
+        if (ok) return (amount, o);
+        uint256 lo;
+        uint256 hi = amount;
+        for (uint256 i; i < FILL_SEARCH_STEPS && hi - lo > 1; ++i) {
+            uint256 mid = lo + (hi - lo) / 2;
+            (ok, o) = _tryQuote(order, tokenIn, tokenOut, mid, traits);
+            if (ok) {
+                lo = mid;
+                out = o;
+            } else {
+                hi = mid;
+            }
+        }
+        spend = lo;
+    }
+
+    function _tryQuote(ISwapVM.Order memory order, address tokenIn, address tokenOut, uint256 amount, bytes memory t)
+        internal
+        view
+        returns (bool ok, uint256 out)
+    {
+        try ISwapVM(router).quote(order, tokenIn, tokenOut, amount, t) returns (uint256, uint256 o, bytes32) {
+            return (o > 0, o);
+        } catch {
+            return (false, 0);
+        }
     }
 
     /// @dev exact-in taker traits; useTransferFromAndAquaPush (0x0040) is required for Aqua orders (SwapVM.sol v1.0.2)
@@ -257,9 +304,12 @@ contract TremorHook is BaseHookFee, IUnlockCallback, ITremorHook, Ownable, Reent
     function _convertToWeth(PoolKey memory key) internal {
         uint256 uniBal = IERC20(Currency.unwrap(key.currency0)).balanceOf(address(this));
         if (uniBal == 0) return;
-        (, int256 p,,,) = uniEthFeed.latestRoundData();
-        if (p <= 0) return;
-        uint256 pLim = FPM.mulDiv(uint256(p), 1e18 - MAX_CONVERT_SLIPPAGE, 1e18);
+        (uint256 price, uint8 bad) = _feedPrice();
+        if (bad != type(uint8).max) {
+            emit ConversionSkipped(bad);
+            return;
+        }
+        uint256 pLim = FPM.mulDiv(price, 1e18 - MAX_CONVERT_SLIPPAGE, 1e18);
         uint160 limit = uint160(FPM.sqrt(FPM.mulDiv(pLim, uint256(1) << 192, 1e18)));
         (uint160 sqrtP,,,) = poolManager.getSlot0(key.toId());
         if (limit <= TickMath.MIN_SQRT_PRICE || sqrtP <= limit) return;
@@ -271,5 +321,16 @@ contract TremorHook is BaseHookFee, IUnlockCallback, ITremorHook, Ownable, Reent
         int128 a1 = d.amount1();
         if (a0 < 0) key.currency0.settle(poolManager, address(this), uint256(uint128(-a0)), false);
         if (a1 > 0) key.currency1.take(poolManager, address(this), uint256(uint128(a1)), false);
+    }
+
+    /// @dev UNI/ETH price as WAD, or a skip reason (0 bad answer, 1 stale, 2 incomplete round); max = usable.
+    function _feedPrice() internal view returns (uint256 price, uint8 bad) {
+        (uint80 roundId, int256 p,, uint256 updatedAt, uint80 answeredInRound) = uniEthFeed.latestRoundData();
+        if (p <= 0) return (0, 0);
+        if (updatedAt == 0 || answeredInRound < roundId) return (0, 2);
+        if (updatedAt > block.timestamp || block.timestamp - updatedAt > FEED_MAX_AGE) return (0, 1);
+        uint8 dec = uniEthFeed.decimals();
+        price = dec <= 18 ? uint256(p) * 10 ** (18 - dec) : uint256(p) / 10 ** (dec - 18);
+        bad = type(uint8).max;
     }
 }

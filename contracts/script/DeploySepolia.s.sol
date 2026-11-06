@@ -97,7 +97,7 @@ contract DeploySepolia is Script {
         o.vault = new TremorVault(owner, AQUA, address(o.router), address(o.market));
         o.hook = _deployHook(address(o.market), address(o.uniFeed), owner);
         o.epochOrigin = block.timestamp + offset - 7 days;
-        o.receiver = new TremorReceiver(CRE_MOCK_FORWARDER, address(o.hook), address(o.market), o.epochOrigin, 0.5e18, 1 days);
+        o.receiver = new TremorReceiver(CRE_MOCK_FORWARDER, address(o.hook), address(o.market), o.epochOrigin, 0.5e18, 1 days, false);
         o.operator = new PoolOperator(IPoolManager(POOL_MANAGER));
         o.key = PoolKey({
             currency0: Currency.wrap(address(o.tuni)),
@@ -128,7 +128,10 @@ contract DeploySepolia is Script {
         o.hook.setCover(address(o.vault), address(o.router), o.live);
         o.receiver.setCoverWindow(o.live);
         o.receiver.setStartBlock(uint64(block.number));
+        // the simulation forwarder relays anyone's report: only our CRE signer (the deployer) may deliver
+        o.receiver.setReportSubmitter(owner);
         vm.stopBroadcast();
+        require(o.receiver.reportSubmitter() == owner, "submitter");
 
         _write(o);
     }

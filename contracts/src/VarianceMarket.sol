@@ -21,12 +21,17 @@ interface IAggregatorV3 {
 ///  - mintSet locks S WETH per set and mints 1 LONG + 1 SHORT, so every claim is fully backed (I1).
 ///  - Variance is read from EVERY round of the feed inside the window (tick level), walking proxy round ids
 ///    inside the phase recorded at creation; a phase change halts the window (phases overlap in time).
+///  - If the window can never settle normally (the proxy moved phase before a round >= t1 was seen, or a round
+///    inside the window is unreadable while later rounds exist), anyone may settle it after FALLBACK_DELAY at the
+///    forward variance fixed at creation, so claims stay redeemable and no one picks the outcome after the fact.
 contract VarianceMarket is IVarianceMarket, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint256 internal constant WAD = 1e18;
     uint256 public constant YEAR = 31_536_000;
     uint64 public constant MIN_WINDOW = 7 days;
+    /// @dev extra wait, after the normal settlement time, before a stuck window may use the fallback
+    uint64 public constant FALLBACK_DELAY = 7 days;
 
     IERC20 public immutable weth;
     IAggregatorV3 public immutable feed;
@@ -162,7 +167,9 @@ contract VarianceMarket is IVarianceMarket, ReentrancyGuard {
         for (; ingested < maxRounds; ++ingested) {
             uint80 next = r + 1;
             (bool ok, uint256 answer, uint64 updatedAt) = _round(next);
-            if (!ok || updatedAt == 0) break; // past the latest round: proxy returns zeros
+            // unreadable round: end of feed if it is past the latest round; otherwise an internal gap, which leaves
+            // the window not caught up (quotes go Stale, finalize reverts OracleGap)
+            if (!ok || updatedAt == 0) break;
             if (updatedAt >= w.t1) {
                 w.doneIngesting = true;
                 break;
@@ -193,13 +200,30 @@ contract VarianceMarket is IVarianceMarket, ReentrancyGuard {
             (uint80 latestId,,,,) = feed.latestRoundData();
             if (uint16(latestId >> 64) != w.phaseId) revert PhaseChanged();
             // caught up only if the next round does not exist yet (a later round would have updatedAt > now >= t1)
-            (bool ok,, uint64 nextUpdatedAt) = _round(w.lastRound + 1);
+            uint80 next = w.lastRound + 1;
+            (bool ok,, uint64 nextUpdatedAt) = _round(next);
             if (ok && nextUpdatedAt != 0) revert TooEarly();
+            // an unreadable round below the latest one is a gap, not the end of the feed: never settle on it
+            if (next <= latestId) revert OracleGap(next);
         }
         uint256 v = FPM.mulDiv(w.q, YEAR, w.t1 - w.t0);
         w.payoutLong = Pricing.payoutLong(w.S, v, w.vCap);
         w.finalized = true;
         emit Finalized(id, v, w.payoutLong);
+    }
+
+    /// @notice Settle a window that can never finalize normally, at the forward variance fixed at creation
+    ///         (permissionless). Only after t1 + FINALIZE_DELAY + FALLBACK_DELAY, and only while the oracle is
+    ///         stuck: the proxy moved to a new phase before a round >= t1 was seen, or the next round is an
+    ///         unreadable round below the latest one. The outcome is deterministic from creation-time parameters.
+    function settleFallback(uint256 id) external {
+        Window storage w = _get(id);
+        if (w.finalized) revert AlreadyFinalized();
+        if (block.timestamp < w.t1 + FINALIZE_DELAY + FALLBACK_DELAY) revert TooEarly();
+        if (w.doneIngesting || !_stuck(w)) revert NotStuck();
+        w.payoutLong = Pricing.payoutLong(w.S, w.vFwd, w.vCap);
+        w.finalized = true;
+        emit FallbackSettled(id, w.vFwd, w.payoutLong);
     }
 
     function redeem(uint256 id, uint256 nLong, uint256 nShort) external nonReentrant returns (uint256 wethOut) {
@@ -254,8 +278,10 @@ contract VarianceMarket is IVarianceMarket, ReentrancyGuard {
         if (w.doneIngesting || w.finalized) return true;
         (uint80 latestId,,,,) = feed.latestRoundData();
         if (uint16(latestId >> 64) != w.phaseId) return false; // feed moved phase: checkpoint() will revert
-        (bool ok,, uint64 nextUpdatedAt) = _round(w.lastRound + 1);
-        return !ok || nextUpdatedAt == 0;
+        uint80 next = w.lastRound + 1;
+        (bool ok,, uint64 nextUpdatedAt) = _round(next);
+        // the next round is missing: caught up only if it is past the latest round (else it is an internal gap)
+        return (!ok || nextUpdatedAt == 0) && next > latestId;
     }
 
     /// @notice Price a taker trade (spec §7.4). Used by the CappedPayoffCurve SwapVM instruction.
@@ -316,6 +342,15 @@ contract VarianceMarket is IVarianceMarket, ReentrancyGuard {
         if (tau <= w.t0) return 0;
         if (tau >= w.t1) return w.t1 - w.t0;
         return tau - w.t0;
+    }
+
+    /// @dev true when normal settlement is impossible: phase changed, or the next round is a gap below the latest
+    function _stuck(Window storage w) internal view returns (bool) {
+        (uint80 latestId,,,,) = feed.latestRoundData();
+        if (uint16(latestId >> 64) != w.phaseId) return true;
+        uint80 next = w.lastRound + 1;
+        (bool ok,, uint64 u) = _round(next);
+        return (!ok || u == 0) && next <= latestId;
     }
 
     /// @dev reads one proxy round; ok=false if the call reverts. Answer must be positive.

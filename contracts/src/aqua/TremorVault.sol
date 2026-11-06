@@ -29,6 +29,7 @@ contract TremorVault is ITremorVault, Ownable {
 
     mapping(uint256 => ISwapVM.Order) internal _orders;
     mapping(uint256 => bytes32) public strategyHash;
+    mapping(uint256 => bool) public docked; // strategy removed from Aqua (no more quotes or fills)
 
     error WindowAlreadyOpen();
     error WindowNotOpen();
@@ -105,17 +106,17 @@ contract TremorVault is ITremorVault, Ownable {
         emit WindowOpened(id, h, nSets, wethForBuybacks);
     }
 
-    /// @notice Stop quoting: dock the strategy (Aqua requires listing every token).
+    /// @notice Stop quoting: dock the strategy (Aqua requires listing every token). Once per window.
     function closeWindow(uint256 id) external onlyOwner {
-        bytes32 h = strategyHash[id];
-        if (h == bytes32(0)) revert WindowNotOpen();
-        aqua.dock(router, h, _tokens(market.window(id)));
-        emit WindowClosed(id, h);
+        _dock(id);
     }
 
-    /// @notice After finalize: redeem whatever LONG/SHORT inventory the vault still holds.
+    /// @notice After finalize: dock the strategy if it is still shipped (so no stale order stays visible in Aqua),
+    ///         then redeem whatever LONG/SHORT inventory the vault still holds.
     function settle(uint256 id) external onlyOwner {
         IVarianceMarket.WindowView memory w = market.window(id);
+        if (!w.finalized) revert IVarianceMarket.NotFinalized();
+        if (strategyHash[id] != bytes32(0) && !docked[id]) _dock(id);
         uint256 l = IERC20(w.long).balanceOf(address(this));
         uint256 s = IERC20(w.short).balanceOf(address(this));
         if (l > 0 || s > 0) market.redeem(id, l, s);
@@ -133,11 +134,19 @@ contract TremorVault is ITremorVault, Ownable {
         return abi.encode(_orders[id]);
     }
 
-    /// @notice Effective vs actual collateral: nSets*S WETH (actual) backs 2*nSets claims (effective = 2x).
-    function collateralView(uint256 id) external view returns (uint256 actualWeth, uint256 claimsBacked) {
-        IVarianceMarket.WindowView memory w = market.window(id);
-        actualWeth = market.window(id).setsOutstanding * w.S / 1e18;
-        claimsBacked = 2 * w.setsOutstanding;
+    /// @notice WETH the market holds for the window right now (falls as claims are redeemed), and complete sets
+    ///         issued and not burned as sets. After settlement, one-sided redemptions do not reduce `setsIssued`.
+    function collateralView(uint256 id) external view returns (uint256 lockedWeth, uint256 setsIssued) {
+        lockedWeth = market.lockedWeth(id);
+        setsIssued = market.window(id).setsOutstanding;
+    }
+
+    function _dock(uint256 id) internal {
+        bytes32 h = strategyHash[id];
+        if (h == bytes32(0) || docked[id]) revert WindowNotOpen();
+        docked[id] = true;
+        aqua.dock(router, h, _tokens(market.window(id)));
+        emit WindowClosed(id, h);
     }
 
     function _tokens(IVarianceMarket.WindowView memory w) internal view returns (address[] memory tokens) {

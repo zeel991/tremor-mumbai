@@ -3,8 +3,12 @@
 //
 // Per execution (CRE limits: 15 EVM reads, 15 HTTP calls, 100 blocks per filterLogs):
 //   1  callContract  TremorReceiver.lastProcessedBlock()                       (EVM read 1)
-//   2  filterLogs    Swap logs of [from, to], <= 12 chunks of <= 100 blocks    (EVM reads 2..13)
+//   1b callContract  Multicall3.getBlockNumber() at latest  (live mode only: confirmations > 0)
+//   2  filterLogs    Swap logs of [from, to], <= 12 chunks of <= 100 blocks    (EVM reads 2..13;
+//                    11 chunks in live mode, so the head read stays inside the budget)
 //   3  callContract  Multicall3.getCurrentBlockTimestamp() at `from` and `to`  (EVM reads 14, 15)
+// Live mode caps each span at head - confirmations, so a report never covers blocks that can still reorg
+// (lastProcessedBlock cannot be rolled back). Backfill mode (confirmations = 0) uses the fixed maxToBlock cap.
 //   4  HTTP GET      Binance 1m klines for token0 and token1                   (HTTP 1, 2; node mode)
 //   5  §7.5 maths in node mode (lvr.ts); consensus: every field identical
 //   6  runtime.report + writeReport to TremorReceiver
@@ -74,6 +78,8 @@ export const configSchema = z.object({
 	startBlock: z.number().int().positive(),
 	// never measure past this block (the fork block on Anvil). 0 = no cap.
 	maxToBlock: z.number().int().min(0),
+	// live mode: measure only up to head - confirmations (reorg-safe). 0 = backfill mode (no head read).
+	confirmations: z.number().int().min(0).max(10_000).default(0),
 	blocksPerRun: z.number().int().positive().max(MAX_LOG_CALLS * MAX_LOG_CHUNK),
 	logChunk: z.number().int().positive().max(MAX_LOG_CHUNK),
 	binanceBaseUrl: z.string().regex(/^https?:\/\/[^\s/]+$/), // not .url(): it fails inside the CRE WASM runtime
@@ -86,7 +92,10 @@ export const configSchema = z.object({
 export type Config = z.infer<typeof configSchema>
 
 const RECEIVER_ABI = parseAbi(['function lastProcessedBlock() view returns (uint64)'])
-const MULTICALL3_ABI = parseAbi(['function getCurrentBlockTimestamp() view returns (uint256 timestamp)'])
+const MULTICALL3_ABI = parseAbi([
+	'function getCurrentBlockTimestamp() view returns (uint256 timestamp)',
+	'function getBlockNumber() view returns (uint256 blockNumber)',
+])
 const REPORT_PARAMS = parseAbiParameters('uint64, uint64, uint64, int256, uint256, uint32')
 
 /** What every node returns; consensus requires all six fields to be identical. */
@@ -143,6 +152,24 @@ const readBlockTimestamp = (runtime: Runtime<Config>, evm: EVM, block: bigint): 
 	})
 }
 
+const readHeadBlock = (runtime: Runtime<Config>, evm: EVM): bigint => {
+	const reply = evm
+		.callContract(runtime, {
+			call: encodeCallMsg({
+				from: zeroAddress,
+				to: runtime.config.multicall3 as Address,
+				data: encodeFunctionData({ abi: MULTICALL3_ABI, functionName: 'getBlockNumber' }),
+			}),
+			blockNumber: LATEST_BLOCK_NUMBER,
+		})
+		.result()
+	return decodeFunctionResult({ abi: MULTICALL3_ABI, functionName: 'getBlockNumber', data: bytesToHex(reply.data) })
+}
+
+/** Log-call budget for this run: one fewer in live mode, which spends a read on the head block. */
+export const logCallBudget = (cfg: Pick<Config, 'confirmations'>): number =>
+	(cfg.confirmations ?? 0) > 0 ? MAX_LOG_CALLS - 1 : MAX_LOG_CALLS
+
 const readSwaps = (runtime: Runtime<Config>, evm: EVM, from: bigint, to: bigint): Swap[] => {
 	const src = runtime.config.source
 	const emitter = src.kind === 'v3' ? src.pool : src.poolManager
@@ -153,7 +180,8 @@ const readSwaps = (runtime: Runtime<Config>, evm: EVM, from: bigint, to: bigint)
 	const v3Fee = src.kind === 'v3' ? BigInt(src.feePips) : 0n
 
 	const chunks = chunkRange(from, to, runtime.config.logChunk)
-	if (chunks.length > MAX_LOG_CALLS) throw new Error(`span needs ${chunks.length} filterLogs calls (> ${MAX_LOG_CALLS})`)
+	const budget = logCallBudget(runtime.config)
+	if (chunks.length > budget) throw new Error(`span needs ${chunks.length} filterLogs calls (> ${budget})`)
 
 	const swaps: Swap[] = []
 	for (const [a, b] of chunks) {
@@ -221,10 +249,18 @@ export const onCronTrigger = (runtime: Runtime<Config>, _payload: CronPayload): 
 	// 1. where the receiver left off
 	const last = readLastProcessedBlock(runtime, evm)
 	const fromBlock = last === 0n ? BigInt(cfg.startBlock) : last + 1n
-	let toBlock = fromBlock + BigInt(cfg.blocksPerRun) - 1n
+	const maxSpan = BigInt(Math.min(cfg.blocksPerRun, logCallBudget(cfg) * cfg.logChunk))
+	let toBlock = fromBlock + maxSpan - 1n
 	if (cfg.maxToBlock > 0 && toBlock > BigInt(cfg.maxToBlock)) toBlock = BigInt(cfg.maxToBlock)
+	let safeHead = -1n
+	if ((cfg.confirmations ?? 0) > 0) {
+		safeHead = readHeadBlock(runtime, evm) - BigInt(cfg.confirmations)
+		if (toBlock > safeHead) toBlock = safeHead
+	}
 	if (toBlock < fromBlock) {
-		runtime.log(`caught up: lastProcessedBlock=${last}, maxToBlock=${cfg.maxToBlock}; nothing to write`)
+		runtime.log(
+			`caught up: lastProcessedBlock=${last}, maxToBlock=${cfg.maxToBlock}, safeHead=${safeHead}; nothing to write`,
+		)
 		return 'caught-up'
 	}
 	runtime.log(`span [${fromBlock}, ${toBlock}] (${toBlock - fromBlock + 1n} blocks), lastProcessedBlock=${last}`)
