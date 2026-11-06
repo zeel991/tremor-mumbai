@@ -5,8 +5,10 @@ Record in one take per section; cut together. Every number below is from the rep
 
 ## Before recording (15 minutes)
 
-1. **Fresh mainnet fork from an archive RPC** (a publicnode fork expires after about an hour):
-   `anvil --fork-url https://rpc.mevblocker.io --chain-id 1 --compute-units-per-second 40 --retries 20`
+1. **Fresh mainnet fork right before recording, then record within the hour.** A publicnode fork stops working after
+   about an hour (it keeps little history); rpc.mevblocker.io keeps full history but rate-limits fork traffic and can
+   ban the IP for a while. If you have your own archive RPC key (Alchemy, Infura, QuickNode), use that instead.
+   `anvil --fork-url https://ethereum-rpc.publicnode.com --chain-id 1 --compute-units-per-second 150 --retries 12`
 2. Deploy and replay the demo: `./demo/setup-fork.sh && ./demo/run-demo.sh` (keep this terminal output for shot 4).
 3. Web app on the fork: `cd web && npm run dev` → http://localhost:3000.
 4. Second tab: Sepolia Etherscan, hook `0x547C1194070EFdEDAfa5939D291aEDB444088044`.
