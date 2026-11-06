@@ -61,6 +61,15 @@ for (const name of CONTRACTS) {
     abis[name] = null;
   }
 }
+// Hosted builds (Vercel from git) have no contracts/out: fall back to the committed ABI snapshot, which this script
+// refreshes whenever the Foundry artifacts are present.
+const snapshotPath = join(webDir, "abis.snapshot.json");
+if (CONTRACTS.every((c) => abis[c])) {
+  writeFileSync(snapshotPath, JSON.stringify(abis, null, 2) + "\n");
+} else if (existsSync(snapshotPath)) {
+  const snap = JSON.parse(readFileSync(snapshotPath, "utf8"));
+  for (const c of CONTRACTS) if (!abis[c] && snap[c]) abis[c] = { ...snap[c], source: `${snap[c].source} (snapshot)` };
+}
 write("abis.json", abis);
 
 // ---- 104-week dataset ---------------------------------------------------------------------
