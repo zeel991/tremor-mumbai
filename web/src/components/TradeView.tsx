@@ -3,7 +3,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { formatUnits, parseUnits, type Address, type Hash, type Hex } from "viem";
-import { useConnect, useConnection, useConnectors, useSwitchChain, useWalletClient } from "wagmi";
+import { useConnect, useConnection, useSwitchChain, useWalletClient } from "wagmi";
 import { abis, erc20Abi, hasFunction, routerAbiWithErrors } from "@/lib/abis";
 import { forkChain, IS_FORK, RPC_URL, SETTLEMENT_PAIR } from "@/lib/chain";
 import { read, settled, type WindowView } from "@/lib/chainReads";
@@ -11,8 +11,10 @@ import { deployment, WINDOW_KEYS, type Deployment, type WindowKey } from "@/lib/
 import { errMsg, varianceToVol } from "@/lib/format";
 import { decodeOrder, type Order } from "@/lib/order";
 import { exactInSwapTraits, minOutWithSlippage, quoteTraits } from "@/lib/takerTraits";
-import { publicClient } from "@/lib/wagmi";
+import { getWalletClient } from "wagmi/actions";
+import { publicClient, wagmiConfig } from "@/lib/wagmi";
 import { useWalletOnFork } from "@/lib/walletGuard";
+import { useWalletChoices } from "@/lib/wallets";
 import { Chip, TxLink, ErrorNote, fmtDuration, fmtSpan, fmtToken, InfoTip, MoreLink, PageHeader, Panel, Skeleton } from "./app/kit";
 import { windowName } from "./app/OverviewView";
 
@@ -77,7 +79,7 @@ export function TradeView() {
   const { address } = useConnection();
   const { data: walletClient } = useWalletClient();
   const guard = useWalletOnFork();
-  const connectors = useConnectors();
+  const walletChoices = useWalletChoices();
   const connect = useConnect();
   const switchChain = useSwitchChain();
 
@@ -157,6 +159,12 @@ export function TradeView() {
     setTxs((t) => t.map((x) => (x.id === idn ? { ...x, ...patch } : x)));
   }
 
+  // wagmi's cached wallet client can lag behind a wallet that just connected or switched network (seen with
+  // Zerion): fetch one on demand instead of silently doing nothing.
+  async function signer() {
+    return walletClient ?? (await getWalletClient(wagmiConfig, { chainId: forkChain.id }));
+  }
+
   async function send(label: string, run: () => Promise<Hash>) {
     setBusy(true);
     const idn = pushTx({ label, status: "signing" });
@@ -179,22 +187,22 @@ export function TradeView() {
   const wrapShortfall = q && user.data && dir === "buy" && insufficient ? q.amountIn - user.data.weth : undefined;
   const canWrap = wrapShortfall !== undefined && !!user.data && user.data.eth > wrapShortfall + GAS_RESERVE;
   function wrap() {
-    if (!wrapShortfall || !walletClient || !address) return;
-    void send(`Wrap ${fmtToken(wrapShortfall, "ETH")}`, () =>
-      walletClient.writeContract({ address: d.weth, abi: WETH_DEPOSIT_ABI, functionName: "deposit", value: wrapShortfall, chain: forkChain, account: address }),
+    if (!wrapShortfall || !address) return;
+    void send(`Wrap ${fmtToken(wrapShortfall, "ETH")}`, async () =>
+      (await signer()).writeContract({ address: d.weth, abi: WETH_DEPOSIT_ABI, functionName: "deposit", value: wrapShortfall, chain: forkChain, account: address }),
     );
   }
 
   function approve() {
-    if (!q || !tokenIn || !walletClient || !address) return;
+    if (!q || !tokenIn || !address) return;
     // The taker pays the ROUTER: in Aqua mode SwapVM does safeTransferFrom(taker -> router) then AQUA.push.
-    void send(`Approve ${fmtToken(q.amountIn, inSym)}`, () =>
-      walletClient.writeContract({ address: tokenIn, abi: erc20Abi, functionName: "approve", args: [d.router, q.amountIn], chain: forkChain, account: address }),
+    void send(`Approve ${fmtToken(q.amountIn, inSym)}`, async () =>
+      (await signer()).writeContract({ address: tokenIn, abi: erc20Abi, functionName: "approve", args: [d.router, q.amountIn], chain: forkChain, account: address }),
     );
   }
 
   function swap() {
-    if (!q || !order || !tokenIn || !tokenOut || !walletClient || !address || minOut === undefined) return;
+    if (!q || !order || !tokenIn || !tokenOut || !address || minOut === undefined) return;
     const traits = exactInSwapTraits(address, minOut);
     void send(`${dir === "buy" ? "Buy" : "Sell"} ${fmtToken(dir === "buy" ? q.amountOut : q.amountIn, side)}`, async () => {
       const sim = await publicClient.simulateContract({
@@ -204,23 +212,23 @@ export function TradeView() {
         args: [order.value, tokenIn, tokenOut, q.amount, traits],
         account: address,
       });
-      return walletClient.writeContract({ ...sim.request, chain: forkChain, account: address });
+      return (await signer()).writeContract({ ...sim.request, chain: forkChain, account: address });
     });
   }
 
   // The market pauses quotes while a newer Chainlink round is uningested (stale-quote fix): offer the checkpoint.
   const stale = !!win.data && !closed && !win.data.caughtUp;
   function checkpoint() {
-    if (!walletClient || !address) return;
-    void send("Update prices (Chainlink checkpoint)", () =>
-      walletClient.writeContract({ address: d.market, abi: abis.market.abi, functionName: "checkpoint", args: [id, 64n], chain: forkChain, account: address }),
+    if (!address) return;
+    void send("Update prices (Chainlink checkpoint)", async () =>
+      (await signer()).writeContract({ address: d.market, abi: abis.market.abi, functionName: "checkpoint", args: [id, 64n], chain: forkChain, account: address }),
     );
   }
 
   // One button, one state.
   let cta: { label: string; onClick?: () => void; disabled: boolean };
   if (closed) cta = { label: w?.finalized ? "This week has settled" : "Trading closed for this week", disabled: true };
-  else if (!address) cta = { label: connect.isPending ? "Connecting…" : "Connect wallet", onClick: () => connectors[0] && connect.mutate({ connector: connectors[0] }), disabled: !connectors[0] || connect.isPending };
+  else if (!address) cta = { label: connect.isPending ? "Connecting…" : "Connect wallet", onClick: () => walletChoices[0] && connect.mutate({ connector: walletChoices[0] }), disabled: !walletChoices[0] || connect.isPending };
   else if (guard.state === "wrong-chain") cta = { label: IS_FORK ? "Switch to the local fork" : "Switch to Sepolia", onClick: () => switchChain.mutate({ chainId: forkChain.id }), disabled: false };
   else if (guard.state === "not-fork") cta = { label: "Wallet isn't on the local fork", disabled: true };
   else if (guard.state === "checking") cta = { label: "Checking network…", disabled: true };
@@ -228,7 +236,7 @@ export function TradeView() {
   else if (stale) cta = { label: busy ? "Confirm in wallet…" : "Update prices", onClick: checkpoint, disabled: busy };
   else if (!q) cta = { label: quote.error ? "No quote for this size" : "Getting quote…", disabled: true };
   else if (insufficient && canWrap) cta = { label: busy ? "Confirm in wallet…" : `Wrap ${fmtToken(wrapShortfall, "ETH")} to WETH`, onClick: wrap, disabled: busy };
-  else if (insufficient) cta = { label: `Not enough ${inSym}`, disabled: true };
+  else if (insufficient) cta = { label: dir === "buy" ? `Not enough WETH (or ETH to wrap, keeping ${fmtToken(GAS_RESERVE, "ETH")} for gas)` : `Not enough ${inSym}`, disabled: true };
   else if (needsApproval) cta = { label: `Approve ${inSym}`, onClick: approve, disabled: busy };
   else cta = { label: busy ? "Confirm in wallet…" : `${dir === "buy" ? "Buy" : "Sell"} ${side}`, onClick: swap, disabled: busy || !user.data };
 
@@ -342,23 +350,53 @@ export function TradeView() {
           {quote.error && !closed && !stale && <p className="px-3 pt-3 text-[13px] text-loss">The strategy can&apos;t fill this size. Try a smaller amount.</p>}
 
           <div className="p-1 pt-4">
-            <button className="btn-primary w-full py-3.5 text-[15.5px]" disabled={cta.disabled} onClick={cta.onClick}>
-              {cta.label}
-            </button>
-            {!address && !closed && <p className="mt-2.5 text-center text-[12.5px] text-ink-3">Quotes work without a wallet.</p>}
+            {!address && !closed && walletChoices.length > 1 ? (
+              <div className="grid grid-cols-2 gap-2">
+                {walletChoices.map((c) => (
+                  <button key={c.uid} className="btn-primary py-3.5 text-[15px]" disabled={connect.isPending} onClick={() => connect.mutate({ connector: c })}>
+                    {connect.isPending ? "Connecting…" : `Connect ${c.name}`}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <button className="btn-primary w-full py-3.5 text-[15.5px]" disabled={cta.disabled} onClick={cta.onClick}>
+                {cta.label}
+              </button>
+            )}
+            {!address && !closed && connect.error && (
+              <p className="mt-2.5 text-center text-[12.5px] text-loss">
+                {(connect.error.name as string) === "ProviderNotFoundError"
+                  ? "No wallet found in this browser. Install MetaMask or Rabby, then reload the page."
+                  : `Couldn't connect: ${connect.error.message.split("\n")[0]}`}
+              </p>
+            )}
+            {!address && !closed && !connect.error && <p className="mt-2.5 text-center text-[12.5px] text-ink-3">Quotes work without a wallet.</p>}
+            {address && guard.state === "wrong-chain" && switchChain.error && (
+              <p className="mt-2.5 text-center text-[12.5px] text-loss">
+                Your wallet refused to switch: {switchChain.error.message.split("\n")[0].replace(/\.+$/, "")}. Turn on testnets in the wallet, or switch to
+                Sepolia there by hand.
+              </p>
+            )}
             {guard.state === "not-fork" && <p className="mt-2.5 text-center text-[12.5px] text-ink-3">Point your wallet&apos;s chain-1 RPC at {RPC_URL} so nothing reaches real mainnet.</p>}
           </div>
 
           {txs.length > 0 && (
             <ul className="mx-1 mb-1 mt-3 space-y-1.5 border-t border-line pt-3">
               {txs.map((t) => (
-                <li key={t.id} className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px]">
-                  <span className={`h-2 w-2 shrink-0 rounded-full ${t.status === "success" ? "bg-[#6fd29b]" : t.status === "signing" || t.status === "pending" ? "animate-pulse bg-ink-3" : "bg-loss"}`} />
-                  <span className="flex-1 truncate">
-                    {t.label}
-                    <span className="text-ink-3"> · {t.status === "signing" ? "confirm in wallet" : t.status}</span>
-                  </span>
-                  {t.hash && <TxLink hash={t.hash} />}
+                <li key={t.id} className="rounded-lg px-2 py-1.5 text-[13px]">
+                  <div className="flex items-center gap-2.5">
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${t.status === "success" ? "bg-[#6fd29b]" : t.status === "signing" || t.status === "pending" ? "animate-pulse bg-ink-3" : "bg-loss"}`} />
+                    <span className="flex-1 truncate">
+                      {t.label}
+                      <span className="text-ink-3"> · {t.status === "signing" ? "confirm in wallet" : t.status}</span>
+                    </span>
+                    {t.hash && <TxLink hash={t.hash} />}
+                  </div>
+                  {t.status === "error" && t.detail && (
+                    <p className="mt-1 pl-[18px] text-[12px] leading-snug text-loss" title={t.detail}>
+                      {t.detail.split("\n")[0].slice(0, 220)}
+                    </p>
+                  )}
                 </li>
               ))}
             </ul>

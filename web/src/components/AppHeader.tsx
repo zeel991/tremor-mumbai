@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useConnect, useConnection, useConnectors, useDisconnect, useSwitchChain } from "wagmi";
+import { useState } from "react";
+import { useConnect, useConnection, useDisconnect, useSwitchChain } from "wagmi";
 import { forkChain, IS_FORK, NETWORK_LABEL, RPC_URL } from "@/lib/chain";
 import { shortAddr } from "@/lib/format";
 import { useHeadBlock } from "@/lib/protocol";
 import { useWalletOnFork } from "@/lib/walletGuard";
+import { useWalletChoices } from "@/lib/wallets";
 import { Wordmark } from "./Mark";
 
 const NAV = [
@@ -73,18 +75,44 @@ function Network() {
 
 function Wallet() {
   const { address, status } = useConnection();
-  const connectors = useConnectors();
+  const choices = useWalletChoices();
   const connect = useConnect();
   const disconnect = useDisconnect();
+  const [open, setOpen] = useState(false);
   const switchChain = useSwitchChain();
   const guard = useWalletOnFork();
 
   if (status !== "connected" || !address) {
-    const injected = connectors[0];
+    const only = choices.length === 1 ? choices[0] : undefined;
     return (
-      <button className="btn-primary" disabled={!injected || connect.isPending} onClick={() => injected && connect.mutate({ connector: injected })} title={connect.error?.message.split("\n")[0]}>
-        {connect.isPending ? "Connecting…" : "Connect wallet"}
-      </button>
+      <div className="relative">
+        <button
+          className="btn-primary"
+          disabled={choices.length === 0 || connect.isPending}
+          onClick={() => (only ? connect.mutate({ connector: only }) : setOpen((o) => !o))}
+          title={connect.error?.message.split("\n")[0]}
+        >
+          {connect.isPending ? "Connecting…" : "Connect wallet"}
+        </button>
+        {open && !only && (
+          <div className="absolute right-0 top-full z-50 mt-2 min-w-[190px] rounded-lg border border-line bg-surface-2 p-1 shadow-xl">
+            {choices.map((c) => (
+              <button
+                key={c.uid}
+                className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13.5px] hover:bg-hover"
+                onClick={() => {
+                  setOpen(false);
+                  connect.mutate({ connector: c });
+                }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element -- wallet icons are data: URIs from the extension */}
+                {c.icon ? <img src={c.icon} alt="" className="h-4 w-4 rounded" /> : <span className="h-4 w-4 rounded bg-line" />}
+                {c.name}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     );
   }
 

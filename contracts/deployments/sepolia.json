@@ -28,6 +28,6 @@
   "vault": "0x501F3c0a5D2207F6E9D674f9A58e40D45C2551CA",
   "weth": "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14",
   "windows": {
-    "live": 0
+    "live": 1
   }
 }
