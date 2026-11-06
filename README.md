@@ -83,6 +83,7 @@ Verified on Sepolia (6 Nov 2026):
 - A buy through the router's `0x22` instruction: 0.002 WETH for 9.6919 LONG, equal to the router's quote ([tx](https://sepolia.etherscan.io/tx/0x956352b14cbf7fb0fdb7996dddb0414b1566090e3209916fec144a02e6bbe71c)).
 - Swaps in the Tremor tUNI/WETH v4 pool through the hook.
 - A Chainlink CRE report through the Sepolia MockKeystoneForwarder ([tx](https://sepolia.etherscan.io/tx/0x1dce291361ee2fe94f6964eeb3ccadbfa8840bc3544771fd8a3db98fefae441d)); the receiver advanced to the measured block.
+- **The first fee week closed from CRE reports alone** ([tx](https://sepolia.etherscan.io/tx/0x26229855a052b6ca9540837af7c9569ed58081d088a55dc7e9d751b2ddcbfb1c)): `EpochClosed` with measured arbitrage loss −$0.034 on $28.02 of volume, so the hook fee was set to **0%**. That is the correct result: our test trades were a sale below market followed by an arbitrage back (−$2.46 then +$2.50), which leaves LPs unharmed. LPs only lose to arbitrage when the outside price moves while the pool lags, and on a pool this small an hour of that is worth cents.
 
 How the Sepolia version differs (the contracts are the same code):
 - **Settles on Chainlink ETH/USD.** Sepolia has no UNI/ETH feed; the market works with any feed.
