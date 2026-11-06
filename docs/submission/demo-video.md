@@ -11,7 +11,7 @@ Record in one take per section; cut together. Every number below is from the rep
    `anvil --fork-url https://ethereum-rpc.publicnode.com --chain-id 1 --compute-units-per-second 150 --retries 12`
 2. Deploy and replay the demo: `./demo/setup-fork.sh && ./demo/run-demo.sh` (keep this terminal output for shot 4).
 3. Web app on the fork: `cd web && npm run dev` → http://localhost:3000.
-4. Second tab: Sepolia Etherscan, hook `0x547C1194070EFdEDAfa5939D291aEDB444088044`.
+4. Second tab: Sepolia Etherscan, hook `0x3FF7250cB8BBC51DefC8eB4fEB3cFa9A05ae8044`.
 5. Browser at 1440×900, dark, notifications off, bookmarks bar hidden.
 
 ## Shots

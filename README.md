@@ -71,19 +71,19 @@ Tremor is also deployed on **Sepolia**, against the real Uniswap v4 PoolManager 
 
 | Contract | Address (Sepolia) |
 |---|---|
-| TremorHook | [`0x547C1194070EFdEDAfa5939D291aEDB444088044`](https://sepolia.etherscan.io/address/0x547C1194070EFdEDAfa5939D291aEDB444088044) |
-| TremorReceiver | [`0x1936aA54c3E14eB4062f71df1D0ddf2A133670F8`](https://sepolia.etherscan.io/address/0x1936aA54c3E14eB4062f71df1D0ddf2A133670F8) |
-| VarianceMarket | [`0xa290520A3BDf9b3aB9392949311Fb892bF30e381`](https://sepolia.etherscan.io/address/0xa290520A3BDf9b3aB9392949311Fb892bF30e381) |
-| TremorVault | [`0x60fD5ce187D1306F4480B0e0A87Bc3844D78853B`](https://sepolia.etherscan.io/address/0x60fD5ce187D1306F4480B0e0A87Bc3844D78853B) |
-| TremorAquaSwapVMRouter (`0x22`) | [`0xf82C372742712A19f7053139D294D838a7c48Fc7`](https://sepolia.etherscan.io/address/0xf82C372742712A19f7053139D294D838a7c48Fc7) |
-| tUNI (test token) | [`0xE59410bd08f4D0553D1F73784F647BA6290FAa8a`](https://sepolia.etherscan.io/address/0xE59410bd08f4D0553D1F73784F647BA6290FAa8a) |
+| TremorHook | [`0x3FF7250cB8BBC51DefC8eB4fEB3cFa9A05ae8044`](https://sepolia.etherscan.io/address/0x3FF7250cB8BBC51DefC8eB4fEB3cFa9A05ae8044) |
+| TremorReceiver | [`0xbAFFE70d8D310dF3Da938D06d20e5C0949cD96D6`](https://sepolia.etherscan.io/address/0xbAFFE70d8D310dF3Da938D06d20e5C0949cD96D6) |
+| VarianceMarket | [`0x6d07B9157d4c63F5BC2B5a1dA04E3A883e9B7BE5`](https://sepolia.etherscan.io/address/0x6d07B9157d4c63F5BC2B5a1dA04E3A883e9B7BE5) |
+| TremorVault | [`0x5cdF7cADd39d37Cf4570815F407a4f4c5bb059de`](https://sepolia.etherscan.io/address/0x5cdF7cADd39d37Cf4570815F407a4f4c5bb059de) |
+| TremorAquaSwapVMRouter (`0x22`) | [`0x8282596eBef54837b99392d4d09534251Fa7Aee4`](https://sepolia.etherscan.io/address/0x8282596eBef54837b99392d4d09534251Fa7Aee4) |
+| tUNI (test token) | [`0xBa3AF5f6d46ED19C39E4C9E21740e30FBC8155dD`](https://sepolia.etherscan.io/address/0xBa3AF5f6d46ED19C39E4C9E21740e30FBC8155dD) |
 
-Verified on Sepolia (6 Nov 2026):
+This deployment (6 Nov 2026) includes both review fixes. Verified on Sepolia:
 - All 22 deployment transactions confirmed; every contract has code and the hook is owned by the deployer.
-- A buy through the router's `0x22` instruction: 0.002 WETH for 9.6919 LONG, equal to the router's quote ([tx](https://sepolia.etherscan.io/tx/0x956352b14cbf7fb0fdb7996dddb0414b1566090e3209916fec144a02e6bbe71c)).
-- Swaps in the Tremor tUNI/WETH v4 pool through the hook.
-- A Chainlink CRE report through the Sepolia MockKeystoneForwarder ([tx](https://sepolia.etherscan.io/tx/0x1dce291361ee2fe94f6964eeb3ccadbfa8840bc3544771fd8a3db98fefae441d)); the receiver advanced to the measured block.
-- **The first fee week closed from CRE reports alone** ([tx](https://sepolia.etherscan.io/tx/0x26229855a052b6ca9540837af7c9569ed58081d088a55dc7e9d751b2ddcbfb1c)): `EpochClosed` with measured arbitrage loss −$0.034 on $28.02 of volume, so the hook fee was set to **0%**. That is the correct result: our test trades were a sale below market followed by an arbitrage back (−$2.46 then +$2.50), which leaves LPs unharmed. LPs only lose to arbitrage when the outside price moves while the pool lags, and on a pool this small an hour of that is worth cents.
+- **The stale-quote fix, live:** a new Chainlink ETH/USD round had arrived after the window was created, so `caughtUp(0)` was false and the router's quote reverted `Stale()`. After a permissionless `checkpoint` ([tx](https://sepolia.etherscan.io/tx/0xb4ba6b3c3269c58eac0585d4bcebeda70e621661ef99a3aa4d6c443b02d05861)) the quote returned and a buy through the router's `0x22` instruction filled exactly at it: 0.002 WETH for 9.6919 LONG ([tx](https://sepolia.etherscan.io/tx/0xd905bf07785c2c66bf4c1cc68fa39d5ec9ba792b3dc3a04a16e5c2bcb2e95dd5)).
+- A Chainlink CRE report through the Sepolia MockKeystoneForwarder ([tx](https://sepolia.etherscan.io/tx/0x4fe0aad6a9f56f01917e29329e4655283c180a248c3fe8f098e205cfed0fba5a)); the receiver advanced to the measured block.
+
+On the first (pre-fix) Sepolia deployment, the full fee loop also ran: test swaps through the hook, CRE reports, and **the first fee week closed from CRE reports alone** ([tx](https://sepolia.etherscan.io/tx/0x26229855a052b6ca9540837af7c9569ed58081d088a55dc7e9d751b2ddcbfb1c)) with measured arbitrage loss −$0.034 on $28.02 of volume, so the hook fee was set to **0%**. That is the correct result: our test trades were a sale below market followed by an arbitrage back (−$2.46 then +$2.50), which leaves LPs unharmed. LPs lose to arbitrage only when the outside price moves while the pool lags, and on a pool this small an hour of that is worth cents.
 
 How the Sepolia version differs (the contracts are the same code):
 - **Settles on Chainlink ETH/USD.** Sepolia has no UNI/ETH feed; the market works with any feed.
@@ -133,7 +133,7 @@ cd ../web && npm install && npm run dev
 ## Fixed after external review (6 Nov 2026)
 - **Stale quotes.** The live market quoted from stored state even when a newer Chainlink round was public, and after the window ended. It now reverts (`Stale`, `TooLate`) until `checkpoint()` catches up; the hook checkpoints a running cover window before buying.
 - **Drip griefing.** Anyone could call `claimPayout` with a window holding nothing and restart the donation drip, delaying LPs indefinitely. Each window the hook bought cover in can now be claimed once; a zero payout leaves the drip untouched.
-- The Sepolia deployment predates these fixes.
+- Sepolia was redeployed with both fixes (addresses above).
 
 ## Honest limits
 - **Pool-level data.** Individual LPs, especially narrow-range ones, can do better or worse than the pool total. LPs were net positive over two years (+$0.72M); the problem is thin, unpredictable margins.

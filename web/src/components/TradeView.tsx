@@ -26,12 +26,15 @@ const WETH_DEPOSIT_ABI = [{ type: "function", name: "deposit", stateMutability: 
 async function loadWindow(d: Deployment, id: bigint) {
   const [w, head] = await Promise.all([read<WindowView>(d.market, abis.market.abi, "window", [id]), publicClient.getBlock()]);
   const lockedP = hasFunction(abis.market.abi, "lockedWeth") ? read<bigint>(d.market, abis.market.abi, "lockedWeth", [id]) : Promise.reject(new Error("market ABI has no lockedWeth"));
-  const [vProj, orderEnc, vaultLong, vaultShort, locked] = await Promise.allSettled([
+  // caughtUp(id) exists on markets with the stale-quote fix; older deployments lack it (treated as caught up)
+  const caughtUpP = hasFunction(abis.market.abi, "caughtUp") ? read<boolean>(d.market, abis.market.abi, "caughtUp", [id]) : Promise.resolve(true);
+  const [vProj, orderEnc, vaultLong, vaultShort, locked, caught] = await Promise.allSettled([
     read<bigint>(d.market, abis.market.abi, "projectedVariance", [id]),
     read<Hex>(d.vault, abis.vault.abi, "currentOrderEncoded", [id]),
     read<bigint>(w.long, erc20Abi, "balanceOf", [d.vault]),
     read<bigint>(w.short, erc20Abi, "balanceOf", [d.vault]),
     lockedP,
+    caughtUpP,
   ]);
   let order: { ok: true; value: Order; encoded: Hex } | { ok: false; error: string };
   const enc = settled(orderEnc);
@@ -43,7 +46,8 @@ async function loadWindow(d: Deployment, id: bigint) {
       order = { ok: false, error: `could not decode the strategy order: ${errMsg(e)}` };
     }
   }
-  return { w, now: head.timestamp, vProj: settled(vProj), order, vaultLong: settled(vaultLong), vaultShort: settled(vaultShort), locked: settled(locked) };
+  const caughtUp = caught.status === "fulfilled" ? caught.value : true;
+  return { w, now: head.timestamp, vProj: settled(vProj), order, vaultLong: settled(vaultLong), vaultShort: settled(vaultShort), locked: settled(locked), caughtUp };
 }
 
 function useDebounced<T>(value: T, ms: number): T {
@@ -204,6 +208,15 @@ export function TradeView() {
     });
   }
 
+  // The market pauses quotes while a newer Chainlink round is uningested (stale-quote fix): offer the checkpoint.
+  const stale = !!win.data && !closed && !win.data.caughtUp;
+  function checkpoint() {
+    if (!walletClient || !address) return;
+    void send("Update prices (Chainlink checkpoint)", () =>
+      walletClient.writeContract({ address: d.market, abi: abis.market.abi, functionName: "checkpoint", args: [id, 64n], chain: forkChain, account: address }),
+    );
+  }
+
   // One button, one state.
   let cta: { label: string; onClick?: () => void; disabled: boolean };
   if (closed) cta = { label: w?.finalized ? "This week has settled" : "Trading closed for this week", disabled: true };
@@ -212,6 +225,7 @@ export function TradeView() {
   else if (guard.state === "not-fork") cta = { label: "Wallet isn't on the local fork", disabled: true };
   else if (guard.state === "checking") cta = { label: "Checking network…", disabled: true };
   else if (amount === undefined) cta = { label: "Enter an amount", disabled: true };
+  else if (stale) cta = { label: busy ? "Confirm in wallet…" : "Update prices", onClick: checkpoint, disabled: busy };
   else if (!q) cta = { label: quote.error ? "No quote for this size" : "Getting quote…", disabled: true };
   else if (insufficient && canWrap) cta = { label: busy ? "Confirm in wallet…" : `Wrap ${fmtToken(wrapShortfall, "ETH")} to WETH`, onClick: wrap, disabled: busy };
   else if (insufficient) cta = { label: `Not enough ${inSym}`, disabled: true };
@@ -320,7 +334,12 @@ export function TradeView() {
               )}
             </dl>
           )}
-          {quote.error && !closed && <p className="px-3 pt-3 text-[13px] text-loss">The strategy can&apos;t fill this size. Try a smaller amount.</p>}
+          {stale && !closed && (
+            <p className="px-3 pt-3 text-[13px] text-ink-2">
+              Chainlink published a new price since the last update, so quotes are paused until it&apos;s fed in. Anyone can do it: one transaction.
+            </p>
+          )}
+          {quote.error && !closed && !stale && <p className="px-3 pt-3 text-[13px] text-loss">The strategy can&apos;t fill this size. Try a smaller amount.</p>}
 
           <div className="p-1 pt-4">
             <button className="btn-primary w-full py-3.5 text-[15.5px]" disabled={cta.disabled} onClick={cta.onClick}>
