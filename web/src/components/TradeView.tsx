@@ -78,7 +78,8 @@ export function TradeView() {
   const [windowKey, setWindowKey] = useState<WindowKey>("live");
   const [side, setSide] = useState<SideName>("LONG");
   const [dir, setDir] = useState<Dir>("buy");
-  const [amountStr, setAmountStr] = useState("0.1");
+  // Sepolia pays 0.001 WETH per pair (1,000x smaller than the fork), so start with a size that fills there.
+  const [amountStr, setAmountStr] = useState(IS_FORK ? "0.1" : "0.002");
   const [txs, setTxs] = useState<TxEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const txSeq = useRef(0);

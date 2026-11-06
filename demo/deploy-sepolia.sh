@@ -25,7 +25,11 @@ PRICE=$(cast call 0xD6aA3D25116d8dA79Ea0246c4826EB951872e02e "latestRoundData()(
 echo "pool start price (mainnet UNI/ETH, WAD): $PRICE"
 
 cd "$ROOT/contracts"
-UNI_ETH_PRICE="$PRICE" forge script script/DeploySepolia.s.sol --rpc-url "$RPC" --private-key "$CRE_ETH_PRIVATE_KEY" \
-  --broadcast --slow -vv 2>&1 | grep -E "hook mined|wrote|Error|error|revert|ONCHAIN|Total Paid" || true
+# 1) Simulate against live Sepolia state (sends nothing) and write deployments/sepolia.json.
+UNI_ETH_PRICE="$PRICE" forge script script/DeploySepolia.s.sol --rpc-url "$RPC" --private-key "$CRE_ETH_PRIVATE_KEY" -vv 2>&1 \
+  | grep -E "hook mined|wrote|Error|error|revert|SIMULATION" || true
+# 2) Send the planned transactions with the node's own gas estimates. Sepolia reprices state-growth gas
+#    (contract deployments cost ~4-7x the local simulation), so forge's --broadcast gas limits run out of gas.
+node "$ROOT/demo/send-planned.mjs" broadcast/DeploySepolia.s.sol/11155111/dry-run/run-latest.json "$RPC"
 test -f deployments/sepolia.json && jq '{uni, market, router, vault, hook, receiver, poolId, windows, forkBlock}' deployments/sepolia.json
 echo "explorer: https://sepolia.etherscan.io/address/$(jq -r .hook deployments/sepolia.json)"

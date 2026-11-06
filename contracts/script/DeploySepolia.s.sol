@@ -119,9 +119,9 @@ contract DeploySepolia is Script {
         o.operator.addLiquidity(o.key, -887_220, 887_220, int256(liquidity));
 
         // the live window: now -> now + 7 days, written into one Aqua strategy
-        // starts 10 minutes after the script runs: on a live chain later transactions mine in later blocks, and a
+        // starts 30 minutes after the script runs: on a live chain later transactions mine in later blocks, and a
         // start in the past is rejected (PastWindow). Quotes before t0 use zero elapsed time.
-        uint64 t0 = uint64(block.timestamp + 10 minutes);
+        uint64 t0 = uint64(block.timestamp + 30 minutes);
         o.live = o.market.createWindow(t0, t0 + 7 days, S, V_CAP, V_FWD);
         IERC20(WETH).transfer(address(o.vault), collateral);
         o.vault.openWindow(o.live, sets, BUYBACK, t0 + 7 days, keccak256("tremor-sepolia-live"));

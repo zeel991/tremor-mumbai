@@ -62,6 +62,33 @@ All of these ran on an **Anvil fork of Ethereum mainnet**, against the deployed 
 - `cre workflow build` compiles.
 - **`cre workflow simulate` ran on the fork** (6 Nov 2026, CLI v1.39.0, after `cre login`). Each run wrote a report through the mainnet MockKeystoneForwarder. A backfill of 42 runs over the week of 6 Oct 2025 measured 1,931 swaps and $168,022 of arbitrage loss (the backtest has $172,486 for the full week). The run that crossed into 13 Oct emitted `EpochClosed` and moved `TremorHook.premiumPips()` from 0 to **3,000**, from CRE data alone. Every figure was read back from the chain; details are in [`cre/README.md`](cre/README.md#simulation-results-6-nov-2026-anvil-fork-of-mainnet-at-block-26352198-from-rpcmevblockerio). Demo step F2 still delivers precomputed weekly reports through the forwarder by impersonation, because a 42-run backfill takes about 15 minutes.
 
+## Sepolia testnet deployment
+
+Tremor is also deployed on **Sepolia**, against the real Uniswap v4 PoolManager and the 1inch Aqua registry (byte-identical to mainnet's). Run the app against it with `cd web && npm run dev:sepolia`.
+
+| Contract | Address (Sepolia) |
+|---|---|
+| TremorHook | [`0x547C1194070EFdEDAfa5939D291aEDB444088044`](https://sepolia.etherscan.io/address/0x547C1194070EFdEDAfa5939D291aEDB444088044) |
+| TremorReceiver | [`0x1936aA54c3E14eB4062f71df1D0ddf2A133670F8`](https://sepolia.etherscan.io/address/0x1936aA54c3E14eB4062f71df1D0ddf2A133670F8) |
+| VarianceMarket | [`0xa290520A3BDf9b3aB9392949311Fb892bF30e381`](https://sepolia.etherscan.io/address/0xa290520A3BDf9b3aB9392949311Fb892bF30e381) |
+| TremorVault | [`0x60fD5ce187D1306F4480B0e0A87Bc3844D78853B`](https://sepolia.etherscan.io/address/0x60fD5ce187D1306F4480B0e0A87Bc3844D78853B) |
+| TremorAquaSwapVMRouter (`0x22`) | [`0xf82C372742712A19f7053139D294D838a7c48Fc7`](https://sepolia.etherscan.io/address/0xf82C372742712A19f7053139D294D838a7c48Fc7) |
+| tUNI (test token) | [`0xE59410bd08f4D0553D1F73784F647BA6290FAa8a`](https://sepolia.etherscan.io/address/0xE59410bd08f4D0553D1F73784F647BA6290FAa8a) |
+
+Verified on Sepolia (6 Nov 2026):
+- All 22 deployment transactions confirmed; every contract has code and the hook is owned by the deployer.
+- A buy through the router's `0x22` instruction: 0.002 WETH for 9.6919 LONG, equal to the router's quote ([tx](https://sepolia.etherscan.io/tx/0x956352b14cbf7fb0fdb7996dddb0414b1566090e3209916fec144a02e6bbe71c)).
+- Swaps in the Tremor tUNI/WETH v4 pool through the hook.
+- A Chainlink CRE report through the Sepolia MockKeystoneForwarder ([tx](https://sepolia.etherscan.io/tx/0x1dce291361ee2fe94f6964eeb3ccadbfa8840bc3544771fd8a3db98fefae441d)); the receiver advanced to the measured block.
+
+How the Sepolia version differs (the contracts are the same code):
+- **Settles on Chainlink ETH/USD.** Sepolia has no UNI/ETH feed; the market works with any feed.
+- **Test UNI.** The pool is tUNI/WETH, started at the mainnet UNI/ETH price. A test price feed (owner-set) only guards the hook's UNI-to-WETH conversion.
+- **Smaller sizes.** 0.001 WETH per LONG+SHORT pair, with the price slope and skew scaled by the same 1,000x, so prices and spreads match in relative terms.
+- **First fee epoch closes 2 hours after deploy,** so a CRE run can set the hook fee during testing (`./cre/run-sepolia.sh`).
+- **Settlement isn't testable before the deadline.** Windows are at least 7 days; the live window settles on 13 Nov.
+- **Gas.** Sepolia reprices state-growth gas (a WETH deposit costs about 134k gas there; the router deployment 34.3M), so `demo/deploy-sepolia.sh` simulates with forge and then sends each transaction with the node's own gas estimate (`demo/send-planned.mjs`).
+
 ## Run it
 
 ```bash

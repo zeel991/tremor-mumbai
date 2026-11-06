@@ -1,0 +1,33 @@
+{
+  "aqua": "0x1111113CCf1426A8E30e2bfF5E005d929bF6a90a",
+  "chainId": 11155111,
+  "creForwarder": "0x15fC6ae953E024d975e77382eEeC56A9101f9F88",
+  "epochOrigin": 1793339904,
+  "explorer": "https://sepolia.etherscan.io",
+  "forkBlock": 12074056,
+  "hook": "0x547C1194070EFdEDAfa5939D291aEDB444088044",
+  "market": "0xa290520A3BDf9b3aB9392949311Fb892bF30e381",
+  "multicall3": "0xcA11bde05977b3631167028862bE2a173976CA11",
+  "network": "sepolia",
+  "poolId": "0xa140646912a4e7e372e4b407c58c8d25d5abe3e509b83a4a9545341971a2c278",
+  "poolKey": {
+    "currency0": "0xE59410bd08f4D0553D1F73784F647BA6290FAa8a",
+    "currency1": "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14",
+    "fee": 3000,
+    "hooks": "0x547C1194070EFdEDAfa5939D291aEDB444088044",
+    "tickSpacing": 60
+  },
+  "poolManager": "0xE03A1074c86CFeDd5C142C4F04F1a1536e203543",
+  "poolOperator": "0xf5C4241B08C87273ec25887369050A616D3328f7",
+  "receiver": "0x1936aA54c3E14eB4062f71df1D0ddf2A133670F8",
+  "router": "0xf82C372742712A19f7053139D294D838a7c48Fc7",
+  "rpc": "https://ethereum-sepolia-rpc.publicnode.com",
+  "settlementFeed": "0x694AA1769357215DE4FAC081bf1f309aDC325306",
+  "uni": "0xE59410bd08f4D0553D1F73784F647BA6290FAa8a",
+  "uniEthFeed": "0x931457811896cbde57677eDD1cb31F5F4aE57155",
+  "vault": "0x60fD5ce187D1306F4480B0e0A87Bc3844D78853B",
+  "weth": "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14",
+  "windows": {
+    "live": 0
+  }
+}

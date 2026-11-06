@@ -609,3 +609,8 @@ Recorded during the build, Fri 6 Nov 2026.
 | Mint after t1 | – | Reverts `TooLate` | The error name was wrong |
 | JIT penalty | optional | Not built; drip only | Cut for time (cut order #1). The residual risk is stated in the README |
 | CRE simulation | gate by hour 2 | Passed (6 Nov 2026) | After `cre login`, on an Anvil fork from `rpc.mevblocker.io`: the first run's `Measured` matched the simulator's values; a 42-run backfill of the week of 6 Oct 2025 emitted `EpochClosed` and set the premium to 3,000 pips, the same as the backtest rule (uncapped about 7,400 pips in both). `z.string().url()` had to be replaced, because it fails inside WASM. Demo F2 still uses impersonated precomputed reports for speed |
+
+### Sepolia deployment (6 Nov 2026)
+
+A second deployment on Sepolia (`contracts/script/DeploySepolia.s.sol`, addresses in `contracts/deployments/sepolia.json` and the README). Same contracts; differences: settlement on Chainlink ETH/USD (no UNI/ETH feed on Sepolia), a test UNI with an owner-set test feed for the hook's conversion guard, S = 0.001 WETH with LAMBDA and KAPPA scaled by the same factor, the receiver's epoch origin set so the first epoch closes 2 hours after deploy, a live window only, and transactions sent with the node's gas estimates because Sepolia reprices state-growth gas.
+
