@@ -77,7 +77,7 @@ flowchart LR
 - **Router:** AquaSwapVMRouter v1.0.2 plus `0x22`, a redeployment the prize rules allow, constructed against the deployed Aqua registry. [`TremorAquaSwapVMRouter.sol#L12-L37`](contracts/src/aqua/TremorAquaSwapVMRouter.sol#L12-L37). Runtime **21,935 bytes** (EIP-170 limit 24,576).
 - **One strategy, three tokens:** the vault mints complete sets, builds the SwapVM program and ships `[WETH, LONG, SHORT]` as a single Aqua strategy. [`TremorVault.sol#L48`](contracts/src/aqua/TremorVault.sol#L48), program [`#L75`](contracts/src/aqua/TremorVault.sol#L75), `aqua.ship` [`#L104`](contracts/src/aqua/TremorVault.sol#L104). N WETH backs 2N claims, so the strategy can never owe more than it holds.
 - **Why it matters:** without Aqua and the instruction there is no market for the cover. It is the product, not a decoration.
-- **Proof:** `quote == swap` for buys and sells through `0x22` ([`test_A2`](contracts/test/fork/TremorFork.t.sol#L98)); a live Sepolia buy that filled exactly at its quote ([tx](https://sepolia.etherscan.io/tx/0xd905bf07785c2c66bf4c1cc68fa39d5ec9ba792b3dc3a04a16e5c2bcb2e95dd5)).
+- **Proof:** `quote == swap` for buys and sells through `0x22` ([`test_A2`](contracts/test/fork/TremorFork.t.sol#L98)); a Sepolia buy (first deployment) that filled exactly at its quote ([tx](https://sepolia.etherscan.io/tx/0xd905bf07785c2c66bf4c1cc68fa39d5ec9ba792b3dc3a04a16e5c2bcb2e95dd5)), and the hook's own cover buy through `0x22` on the current deployment ([tx](https://sepolia.etherscan.io/tx/0x180dd947b4c0746d20fb6ab33daf7e6d7c7a838ccf25ca7996301958b7aa0032)).
 
 ### Uniswap: a hook fee that buys cover and donates it back
 
@@ -93,7 +93,7 @@ flowchart LR
 - **CRE workflow** ([`cre/tremor-lvr`](cre/tremor-lvr)): per run, 1 + 12 + 2 EVM reads (receiver state [`workflow.ts#L125`](cre/tremor-lvr/workflow.ts#L125), swap logs in 100-block chunks [`#L189`](cre/tremor-lvr/workflow.ts#L189), block timestamps via Multicall3 [`#L125`](cre/tremor-lvr/workflow.ts#L125)), 2 Binance HTTP calls in node mode ([`#L221-L224`](cre/tremor-lvr/workflow.ts#L221-L224)), deterministic integer maths ([`lvr.ts#L195`](cre/tremor-lvr/lvr.ts#L195)), and one `writeReport` ([`#L305-L307`](cre/tremor-lvr/workflow.ts#L305-L307)). Within the 15-read, 15-call limits.
 - **Receiver:** contiguous spans only ([`TremorReceiver.sol#L87-L95`](contracts/src/hook/TremorReceiver.sol#L87-L95)); at each weekly close it sets the hook fee ([`#L126-L134`](contracts/src/hook/TremorReceiver.sol#L126-L134)). CRE data moves the fee, never the payouts.
 - **Data Feeds settlement:** `checkpoint` ingests every round in the window ([`VarianceMarket.sol#L156`](contracts/src/VarianceMarket.sol#L156)), phase-aware and never stitching phases ([`_anchor #L367`](contracts/src/VarianceMarket.sol#L367)); `finalize` settles on the full set ([`#L193`](contracts/src/VarianceMarket.sol#L193)); quotes pause until the newest round is ingested ([`caughtUp #L276`](contracts/src/VarianceMarket.sol#L276)).
-- **Proof:** a 42-run `cre workflow simulate` backfill of the 6 Oct 2025 week measured **1,931 swaps and $168,022** of loss (backtest: $172,486) and closed the week with **3,000 pips** from CRE data alone ([results](cre/README.md#simulation-results-6-nov-2026-anvil-fork-of-mainnet-at-block-26352198-from-rpcmevblockerio)); a CRE report through the Sepolia forwarder ([tx](https://sepolia.etherscan.io/tx/0x4fe0aad6a9f56f01917e29329e4655283c180a248c3fe8f098e205cfed0fba5a)); the TypeScript maths matches the Python reference on a real crash hour ([`validate.ts`](cre/scripts/validate.ts)).
+- **Proof:** a 42-run `cre workflow simulate` backfill of the 6 Oct 2025 week measured **1,931 swaps and $168,022** of loss (backtest: $172,486) and closed the week with **3,000 pips** from CRE data alone ([results](cre/README.md#simulation-results-6-nov-2026-anvil-fork-of-mainnet-at-block-26352198-from-rpcmevblockerio)); on Sepolia, two live-mode CRE reports measured a real arbitrage and set the fee ([report 1](https://sepolia.etherscan.io/tx/0x38f8cca9d927ebd8b8cff35dce50af3bca205e9233a276ce584a69a25af6069b), [report 2](https://sepolia.etherscan.io/tx/0xad84a2d2baa7f43bc3fd25aec95b092ae5de546f94b6f275ffd87406d9395150)); the TypeScript maths matches the Python reference on a real crash hour ([`validate.ts`](cre/scripts/validate.ts)).
 
 ## The app
 
@@ -134,30 +134,38 @@ Everything below is reproducible from this repo. "Asserted" means a test fails i
 | Full loop: CRE fee → swaps pay it → cover bought → Chainlink settlement → WETH donated to LPs | [`test_E2E`](contracts/test/fork/TremorFork.t.sol#L243), [`demo/run-demo.sh`](demo/run-demo.sh): fee 0 → 1,121 → 3,000 pips, 1.235 LONG bought for 0.2445 WETH, **1.235 WETH donated** | `./demo/setup-fork.sh && ./demo/run-demo.sh` |
 | A real CRE simulation sets the fee from on-chain data | 42-run backfill, `EpochClosed`, fee → 3,000 pips ([details](cre/README.md#simulation-results-6-nov-2026-anvil-fork-of-mainnet-at-block-26352198-from-rpcmevblockerio)) | `cre/backfill.sh 23565081` |
 | CRE maths equals the Python method | [`cre/scripts/validate.ts`](cre/scripts/validate.ts) on a real crash hour (122 swaps), within $1e-5 | `bun run cre/scripts/validate.ts` |
-| Quotes never use stale oracle data | [`test_quote_reverts_when_newer_round_not_ingested`](contracts/test/unit/VarianceMarket.t.sol#L872); live on Sepolia: quote reverted `Stale()`, then a [checkpoint](https://sepolia.etherscan.io/tx/0xb4ba6b3c3269c58eac0585d4bcebeda70e621661ef99a3aa4d6c443b02d05861) and a [fill at the quote](https://sepolia.etherscan.io/tx/0xd905bf07785c2c66bf4c1cc68fa39d5ec9ba792b3dc3a04a16e5c2bcb2e95dd5) | Etherscan |
+| Quotes never use stale oracle data | [`test_quote_reverts_when_newer_round_not_ingested`](contracts/test/unit/VarianceMarket.t.sol#L872); live on Sepolia (first deployment): quote reverted `Stale()`, then a [checkpoint](https://sepolia.etherscan.io/tx/0xb4ba6b3c3269c58eac0585d4bcebeda70e621661ef99a3aa4d6c443b02d05861) and a [fill at the quote](https://sepolia.etherscan.io/tx/0xd905bf07785c2c66bf4c1cc68fa39d5ec9ba792b3dc3a04a16e5c2bcb2e95dd5) | Etherscan |
 | Payouts can't be delayed by anyone re-claiming | [`test_E2E`](contracts/test/fork/TremorFork.t.sol#L243) asserts re-claims revert `NothingToClaim` | fork tests |
 | Live on a public chain against the real v4 PoolManager and Aqua | [Sepolia addresses](#live-on-sepolia), [`contracts/deployments/sepolia.json`](contracts/deployments/sepolia.json) | Etherscan |
 | The economics, including where Tremor loses | [equal-cost benchmark](#the-economics-honestly) | `python3 data/benchmark_dynamic_fee.py` |
 
 ## Live on Sepolia
 
-Deployed 6 Nov 2026 against the real Uniswap v4 PoolManager and the 1inch Aqua registry (byte-identical to mainnet's). App: **https://tremor-mumbai.vercel.app**.
+Redeployed 6 Nov 2026 with every fix in this README, against the real Uniswap v4 PoolManager and the 1inch Aqua registry (byte-identical to mainnet's). App: **https://tremor-mumbai.vercel.app**.
 
 | Contract | Address |
 |---|---|
-| TremorHook | [`0x3FF7250cB8BBC51DefC8eB4fEB3cFa9A05ae8044`](https://sepolia.etherscan.io/address/0x3FF7250cB8BBC51DefC8eB4fEB3cFa9A05ae8044) |
-| TremorReceiver | [`0xbAFFE70d8D310dF3Da938D06d20e5C0949cD96D6`](https://sepolia.etherscan.io/address/0xbAFFE70d8D310dF3Da938D06d20e5C0949cD96D6) |
-| VarianceMarket | [`0x6d07B9157d4c63F5BC2B5a1dA04E3A883e9B7BE5`](https://sepolia.etherscan.io/address/0x6d07B9157d4c63F5BC2B5a1dA04E3A883e9B7BE5) |
-| TremorVault | [`0x5cdF7cADd39d37Cf4570815F407a4f4c5bb059de`](https://sepolia.etherscan.io/address/0x5cdF7cADd39d37Cf4570815F407a4f4c5bb059de) |
-| TremorAquaSwapVMRouter (`0x22`) | [`0x8282596eBef54837b99392d4d09534251Fa7Aee4`](https://sepolia.etherscan.io/address/0x8282596eBef54837b99392d4d09534251Fa7Aee4) |
-| tUNI (test token) | [`0xBa3AF5f6d46ED19C39E4C9E21740e30FBC8155dD`](https://sepolia.etherscan.io/address/0xBa3AF5f6d46ED19C39E4C9E21740e30FBC8155dD) |
+| TremorHook | [`0xb0591f5b7865c3449d4ec83c521B19eAFb0dC044`](https://sepolia.etherscan.io/address/0xb0591f5b7865c3449d4ec83c521B19eAFb0dC044) |
+| TremorReceiver | [`0xDFA50E9bAa13e7a258BB9FC0C581D9F2A2706325`](https://sepolia.etherscan.io/address/0xDFA50E9bAa13e7a258BB9FC0C581D9F2A2706325) |
+| VarianceMarket | [`0xaeb06597B1596a0659136FdB66E242c17e26b6Be`](https://sepolia.etherscan.io/address/0xaeb06597B1596a0659136FdB66E242c17e26b6Be) |
+| TremorVault | [`0x501F3c0a5D2207F6E9D674f9A58e40D45C2551CA`](https://sepolia.etherscan.io/address/0x501F3c0a5D2207F6E9D674f9A58e40D45C2551CA) |
+| TremorAquaSwapVMRouter (`0x22`) | [`0xFaA5147b44dCb572d9f092df9b6304f45350c9E9`](https://sepolia.etherscan.io/address/0xFaA5147b44dCb572d9f092df9b6304f45350c9E9) |
+| tUNI (test token) | [`0xF9D41aa27036261c7dB4897E134Ec4A0b8e1CfCf`](https://sepolia.etherscan.io/address/0xF9D41aa27036261c7dB4897E134Ec4A0b8e1CfCf) |
 
-On-chain evidence:
-- **Oracle safety, live:** a new Chainlink ETH/USD round arrived after the window opened, `caughtUp(0)` was false and the router's quote reverted `Stale()`. A permissionless `checkpoint` ([tx](https://sepolia.etherscan.io/tx/0xb4ba6b3c3269c58eac0585d4bcebeda70e621661ef99a3aa4d6c443b02d05861)) restored quotes, and a buy through `0x22` filled exactly at the quote: 0.002 WETH for 9.6919 LONG ([tx](https://sepolia.etherscan.io/tx/0xd905bf07785c2c66bf4c1cc68fa39d5ec9ba792b3dc3a04a16e5c2bcb2e95dd5)).
-- **CRE on a public chain:** a report through the Sepolia MockKeystoneForwarder advanced the receiver ([tx](https://sepolia.etherscan.io/tx/0x4fe0aad6a9f56f01917e29329e4655283c180a248c3fe8f098e205cfed0fba5a)).
-- **A full fee week, closed by CRE alone** (first deployment, before the review fixes): `EpochClosed` with −$0.034 of measured loss on $28.02 of volume, so the fee was set to **0%** ([tx](https://sepolia.etherscan.io/tx/0x26229855a052b6ca9540837af7c9569ed58081d088a55dc7e9d751b2ddcbfb1c)). Correct: our test sale below market and the arbitrage back (−$2.46, +$2.50) leave LPs unharmed.
+**Every step, on a public chain** ([`demo/sepolia-e2e.sh`](demo/sepolia-e2e.sh) runs each one):
 
-Sepolia differences (same contracts): settlement on **Chainlink ETH/USD** (Sepolia has no UNI/ETH feed); a **test UNI** pool started at the mainnet UNI/ETH price; **0.001 WETH** per LONG+SHORT pair with the price slope and skew scaled to match; the first fee week closes 2 hours after deploy so CRE can set the fee during testing. Sepolia reprices state-growth gas (the router deployment used 34.3M gas), so [`demo/deploy-sepolia.sh`](demo/deploy-sepolia.sh) simulates with forge and sends each transaction with the node's own estimate.
+| # | Step | What happened | Tx |
+|---|---|---|---|
+| 1 | Arbitrage | The pool opened 5% above the market price; an arbitrage swap moved it to Binance's UNI/ETH, a real LP loss | [tx](https://sepolia.etherscan.io/tx/0x55adf4207a42244c585b09d7ae9f5cce898c97d06e876d20c605a8563e4b6bfd) |
+| 2 | CRE report 1 | `cre workflow simulate` measured blocks 12,076,794–12,077,269 (live mode, 64 confirmations): $0.0092 LP loss on $0.45 volume, 2.05% | [tx](https://sepolia.etherscan.io/tx/0x38f8cca9d927ebd8b8cff35dce50af3bca205e9233a276ce584a69a25af6069b) |
+| 3 | CRE report 2 closes the week | The first report in the next epoch closed it and set the hook fee to **0.30%** (half of 2.05%, capped), valid until the end of next week | [tx](https://sepolia.etherscan.io/tx/0xad84a2d2baa7f43bc3fd25aec95b092ae5de546f94b6f275ffd87406d9395150) |
+| 4 | Swaps pay the fee | Round-trip swaps paid the 0.30% hook fee as ERC-6909 claims | [tx](https://sepolia.etherscan.io/tx/0x34ee01a998ddc2fcf7e267514eb5a5f4ccbf50259c19aa10ecb05368e0c22402) |
+| 5 | Hook buys cover | `handleHookFees` redeemed the claims, converted tUNI to WETH in the pool and bought 0.068 LONG on Aqua through `0x22` | [tx](https://sepolia.etherscan.io/tx/0x180dd947b4c0746d20fb6ab33daf7e6d7c7a838ccf25ca7996301958b7aa0032) |
+| 6 | Settle and pay LPs | SETTLEMENT_PENDING | |
+
+Report delivery is restricted to our CRE signer (`reportSubmitter`), because the simulation forwarder relays anyone's report.
+
+Sepolia differences (same contracts): settlement on **Chainlink ETH/USD** (Sepolia has no UNI/ETH feed), which updates hourly, so the window lasts **3 hours** instead of 7 days; a **test UNI** pool; **0.001 WETH** per LONG+SHORT pair with the price slope and skew scaled to match; the first fee week closes 2 hours after deploy. Binance's public market-data host (`data-api.binance.vision`) serves the same price API. [`demo/deploy-sepolia.sh`](demo/deploy-sepolia.sh) simulates with forge and sends each transaction with the node's own estimate.
 
 ## Run it
 
