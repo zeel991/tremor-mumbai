@@ -63,6 +63,8 @@ interface IVarianceMarket {
     function window(uint256 id) external view returns (WindowView memory);
     function windowCount() external view returns (uint256);
     function lockedWeth(uint256 id) external view returns (uint256);
+    function H_MIN() external view returns (uint256);
+    function KAPPA() external view returns (uint256);
     function projectedVariance(uint256 id) external view returns (uint256 vProj);
     /// @notice true when every public Chainlink round before t1 has been ingested (quotes use current information)
     function caughtUp(uint256 id) external view returns (bool);

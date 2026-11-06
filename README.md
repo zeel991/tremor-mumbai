@@ -15,7 +15,7 @@
 | **1inch** | A **new SwapVM instruction (`0x22`, `CappedPayoffCurve`)** prices fully collateralized LONG/SHORT volatility claims from **one Aqua strategy** holding `[WETH, LONG, SHORT]`, on the **deployed Aqua registry**. |
 | **Uniswap** | A v4 **hook fee** (`BaseHookFee`, `afterSwap` + `afterSwapReturnDelta`) taken as ERC-6909 claims, converted in-pool, spent on cover, and **drip-`donate`d** back to in-range liquidity. |
 | **Chainlink** | A **CRE workflow** values every swap against exchange prices and reports the week's loss on-chain, which sets the fee. **Data Feeds** settle the claims from every readable Chainlink round in the week. |
-| **Proof** | 65/65 unit tests (including 10,508 cross-language pricing vectors and solvency invariants), 8/8 mainnet-fork tests with asserted historical results, a real `cre workflow simulate` backfill that set the fee to its cap, and a **live Sepolia deployment** with on-chain transactions. |
+| **Proof** | 65/65 unit tests (including 10,508 cross-language pricing vectors and solvency invariants), 8/8 mainnet-fork tests with asserted historical results, 17 red-team attack tests against the real Aqua and v4 contracts, a two-week **price-shock stress test** you can replay in the app, a real `cre workflow simulate` backfill that set the fee to its cap, and a **live Sepolia deployment** with on-chain transactions. |
 | **Honesty** | We benchmarked Tremor against simply raising the LP fee: a dynamic fee earns more on average, **Tremor cuts the worst week by 43%**. Both numbers are in this README. |
 
 ## The problem, measured
@@ -107,6 +107,18 @@ flowchart LR
 <img src="docs/img/app-contracts.jpg" alt="Contracts page on Sepolia with Etherscan links"/>
 <sub><b>Contracts & method</b> on the live Sepolia deployment: every address with an Etherscan link, network state, weekly measurements and the formulas.</sub>
 
+### Stress test: watch the market react
+
+The app's **Stress test** page ([`/app/stress`](https://tremor-mumbai.vercel.app/app/stress)) replays two weeks on a mainnet fork, with the deployed Uniswap v4 PoolManager and 1inch Aqua and the live-build contracts. A controllable Chainlink-style feed moves UNI/ETH each day, and an arbitrageur moves the pool to it. Three scenarios:
+
+| Scenario | Week 1 | Fee set for week 2 | Week 2 | Cover payout |
+|---|---|---|---|---|
+| Crash, then crash | daily moves of 3–12% | 0.30% (cap) | daily moves of 5–14% | LONG pays in full; hook donates it to LPs |
+| Crash, then calm | daily moves of 3–12% | 0.30% (cap) | under 0.5% a day | LONG pays little: the cost of insurance |
+| Calm | under 0.5% a day | 0.0008% | under 0.5% a day | almost nothing bought or paid |
+
+Step through day by day to see each part move. The pool follows the oracle, the LP loss is measured with the CRE formula, the fee is set at week close, the LONG price on Aqua climbs as volatility arrives, and the payout is donated to LPs. Source: [`test/scenario/PriceShock.t.sol`](contracts/test/scenario/PriceShock.t.sol). The feed is a test feed so the price can be moved on demand, and the measurements are delivered through the receiver; this is not a CRE run.
+
 ## Proof: every claim with its evidence
 
 Everything below is reproducible from this repo. "Asserted" means a test fails if the number changes.
@@ -166,6 +178,10 @@ forge test --match-path 'test/unit/*' && forge test --match-path 'test/fork/*' -
 ```
 
 ```bash
+forge test --match-path 'test/redteam/*' -vv && forge test --match-path 'test/scenario/*' -vv
+```
+
+```bash
 ../demo/setup-fork.sh && ../demo/run-demo.sh
 ```
 
@@ -201,6 +217,12 @@ A second correctness review the same day found eight more issues. All are fixed 
 - **Report authentication:** the Sepolia receiver takes reports from the CRE simulation forwarder (`MockKeystoneForwarder`), which relays anyone's report with placeholder metadata, so a workflow ID or author check can't authenticate it. New deployments therefore restrict delivery to our CRE signer (`reportSubmitter`). With a real KeystoneForwarder, set the expected workflow ID and author instead.
 - **CRE live mode:** spans end at head minus 64 confirmations, so the workflow never reports blocks that can still reorg (still 15 EVM reads: 11 log chunks plus a head read). Binance candles must be contiguous 60-second rows with positive prices, or the run fails without reporting.
 - **Vault lifecycle:** `settle` docks a still-shipped strategy first, and a strategy can't be docked twice. `collateralView` now reports locked WETH and sets issued.
+
+**Red team (6 Nov 2026).** We asked how we would exploit the 1inch path and attacked it on a mainnet fork with the real Aqua and v4 contracts ([`test/redteam`](contracts/test/redteam), 17 tests):
+- **Sandwich of the hook's cover buy (fixed).** `handleHookFees` is permissionless, so one transaction could buy LONG, trigger the hook's large buy (which lifts the price through inventory skew) and sell back: up to +5.66 WETH in the PoC. The hook now buys at most `2 × H_MIN × S / KAPPA` LONG per call (20 LONG at our parameters), the size at which the skew gain can't cover the round-trip spread. Every attempt in [`CoverSandwich.t.sol`](contracts/test/redteam/CoverSandwich.t.sol) now loses money; leftover fees wait for the next hourly call.
+- **The replay build sells known outcomes (fixed).** The fork-demo build quotes past weeks, so buying a past crash week's LONG at the forecast price is pure profit (+37 WETH in the PoC). Its constructor now refuses any chain except a local mainnet fork.
+- **Oracle latency (open, bounded).** Someone who sees a big move before the Chainlink round lands can buy before quotes pause. It pays only when a single round moves more than about 2.9% near the end of a week (6.6% at the start), because the spread absorbs smaller moves. Next step: a wider minimum spread, or a Chainlink Data Streams price check at trade time.
+- Tried and failed: skew manipulation through `Aqua.push`, complete-set and round-trip arbitrage (3,000 fuzz runs), rounding and dust, exceeding inventory, and sandwiching the UNI→WETH conversion (about 5 bps at best).
 
 Earlier, the independent Python pricing model caught five rounding and fill bugs before the contracts shipped; its 10,508 vectors now gate every change.
 

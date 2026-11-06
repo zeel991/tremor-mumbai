@@ -54,7 +54,17 @@ for (const [i, t] of plan.entries()) {
     console.error(`${String(i).padStart(2)} FAIL ${(t.contractName ?? "-")} ${t.function ?? "CREATE"}: ${msg.replaceAll(key, "<key>").slice(0, 200)}`);
     process.exit(1);
   }
-  const r = JSON.parse(cast(["receipt", hash, "--rpc-url", rpc, "--json", "--confirmations", "1"]));
+  // public RPCs drop receipt polls now and then: retry instead of aborting a half-sent deployment
+  let r;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      r = JSON.parse(cast(["receipt", hash, "--rpc-url", rpc, "--json", "--confirmations", "1"]));
+      break;
+    } catch (e) {
+      if (attempt >= 20) throw e;
+      execFileSync("sleep", ["6"]);
+    }
+  }
   const label = `${t.contractName ?? "-"} ${t.function ?? (tx.to ? "call" : "CREATE")}`;
   console.log(`${String(i).padStart(2)} ${r.status === "0x1" ? "ok  " : "FAIL"} ${label.padEnd(48)} gas ${BigInt(r.gasUsed)}/${gas} ${hash}${r.contractAddress ? " -> " + r.contractAddress : ""}`);
   if (r.status !== "0x1") process.exit(1);

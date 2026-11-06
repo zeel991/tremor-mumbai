@@ -17,12 +17,17 @@ RPC="${SEPOLIA_RPC:-https://ethereum-sepolia-rpc.publicnode.com}"
 DEPLOYER=$(cast wallet address --private-key "$CRE_ETH_PRIVATE_KEY")
 BAL=$(cast balance "$DEPLOYER" --rpc-url "$RPC")
 echo "deployer $DEPLOYER: $(cast from-wei "$BAL") Sepolia ETH"
-python3 -c "import sys; sys.exit(0 if $BAL >= 90*10**15 else 1)" || { echo "need >= 0.09 Sepolia ETH (0.075 becomes WETH for liquidity and collateral)"; exit 1; }
+# WETH needed = LIQ_WETH + SETS * 0.001 + 0.005 buyback (defaults 0.02 + 0.05 + 0.005), plus a little gas
+export LIQ_WETH="${LIQ_WETH:-20000000000000000}" SETS="${SETS:-50000000000000000000}"
+NEED=$(python3 -c "print($LIQ_WETH + $SETS * 10**15 // 10**18 + 5 * 10**15 + 2 * 10**15)")
+python3 -c "import sys; sys.exit(0 if $BAL >= $NEED else 1)" || { echo "need >= $(cast from-wei "$NEED") Sepolia ETH (liquidity + collateral + gas)"; exit 1; }
 
-# The test pool starts at the live mainnet Chainlink UNI/ETH price.
+# The test pool starts at the live mainnet Chainlink UNI/ETH price, optionally offset by POOL_OFFSET_BPS: a pool that
+# opens off the market price gives arbitrageurs something to correct, which the CRE workflow then measures.
 PRICE=$(cast call 0xD6aA3D25116d8dA79Ea0246c4826EB951872e02e "latestRoundData()(uint80,int256,uint256,uint256,uint80)" \
   --rpc-url https://ethereum-rpc.publicnode.com | sed -n 2p | awk '{print $1}')
-echo "pool start price (mainnet UNI/ETH, WAD): $PRICE"
+PRICE=$(python3 -c "print($PRICE * (10000 + ${POOL_OFFSET_BPS:-0}) // 10000)")
+echo "pool start price (mainnet UNI/ETH, WAD, offset ${POOL_OFFSET_BPS:-0} bps): $PRICE"
 
 cd "$ROOT/contracts"
 # 1) Simulate against live Sepolia state (sends nothing) and write deployments/sepolia.json.

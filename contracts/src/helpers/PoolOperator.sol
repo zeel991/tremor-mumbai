@@ -61,6 +61,19 @@ contract PoolOperator is IUnlockCallback {
         d = abi.decode(pm.unlock(abi.encode(op)), (BalanceDelta));
     }
 
+    /// @notice swap until the pool reaches `sqrtPriceLimitX96` (an arbitrageur moving the pool to a new price)
+    function swapToPrice(PoolKey calldata key, bool zeroForOne, uint160 sqrtPriceLimitX96)
+        external
+        returns (BalanceDelta d)
+    {
+        Op memory op;
+        op.kind = 1;
+        op.payer = msg.sender;
+        op.key = key;
+        op.swap = SwapParams({zeroForOne: zeroForOne, amountSpecified: -int256(1e30), sqrtPriceLimitX96: sqrtPriceLimitX96});
+        d = abi.decode(pm.unlock(abi.encode(op)), (BalanceDelta));
+    }
+
     function unlockCallback(bytes calldata data) external returns (bytes memory) {
         if (msg.sender != address(pm)) revert OnlyPoolManager();
         Op memory op = abi.decode(data, (Op));

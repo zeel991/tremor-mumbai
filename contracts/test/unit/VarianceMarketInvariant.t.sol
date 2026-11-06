@@ -126,7 +126,7 @@ contract VarianceMarketInvariantTest is Test {
             p = p * (10_000 + bps) / 10_000;
             feed.push(p, t);
         }
-        mkt = new VarianceMarket(address(weth), address(feed), false, 5e16, 1e16, 2e15, 1e15, 3600);
+        mkt = new VarianceMarket(address(weth), address(feed), false, 5e16, 1e16, 2e15, 1e15, 3600, 7 days);
         // three windows with different S and caps so payouts are interior, capped and tiny
         mkt.createWindow(NOW + 1 days, NOW + 8 days, 1e18, 2.25e18, 0.33e18);
         mkt.createWindow(NOW + 2 days, NOW + 12 days, 3e18 + 7, 50e18, 0.33e18);

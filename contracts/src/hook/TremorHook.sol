@@ -175,6 +175,12 @@ contract TremorHook is BaseHookFee, IUnlockCallback, ITremorHook, Ownable, Reent
         }
         ISwapVM.Order memory order = IVaultOrders(vault).currentOrder(coverWindow);
 
+        // Size cap (red-team finding, 6 Nov 2026): handleHookFees is permissionless, so one transaction can buy LONG,
+        // trigger the hook's buy and sell back. The attacker gains the skew the hook's buy adds (KAPPA per LONG) and
+        // pays at least the round-trip spread (2 * H_MIN * S per LONG). Buying at most kMax = 2 * H_MIN * S / KAPPA
+        // LONG per call keeps that trade unprofitable at any time in the window; the rest waits for the next call.
+        wethIn = _capToMaxLong(order, address(weth), w, wethIn);
+
         // Buy the largest amount the strategy can fill (its curve and LONG inventory are finite). Whatever does not
         // fit stays in the hook for the next handle or window, so an oversized balance never reverts fee handling.
         (uint256 spend, uint256 expectedOut) = _largestFill(order, address(weth), w.long, wethIn);
@@ -187,6 +193,31 @@ contract TremorHook is BaseHookFee, IUnlockCallback, ITremorHook, Ownable, Reent
             ISwapVM(router).swap(order, address(weth), w.long, spend, _takerTraits(minOut, true));
         coverHeld[coverWindow] = true;
         emit CoverBought(coverWindow, amountIn, amountOut);
+    }
+
+    /// @dev WETH needed to buy kMax LONG right now (exact-out quote); returns min(wethIn, that), or wethIn if no cap
+    function _capToMaxLong(ISwapVM.Order memory order, address weth, IVarianceMarket.WindowView memory w, uint256 wethIn)
+        internal
+        view
+        returns (uint256)
+    {
+        uint256 kappa = market.KAPPA();
+        if (kappa == 0) return wethIn;
+        uint256 kMax = FPM.mulDiv(2 * market.H_MIN(), w.S, kappa);
+        try ISwapVM(router).quote(order, weth, w.long, kMax, _exactOutTraits()) returns (uint256 inNeeded, uint256, bytes32) {
+            return inNeeded < wethIn ? inNeeded : wethIn;
+        } catch {
+            return wethIn; // fewer than kMax LONG left: the inventory itself is the cap (_largestFill)
+        }
+    }
+
+    function _exactOutTraits() internal view returns (bytes memory) {
+        TakerTraitsLib.Args memory a;
+        a.taker = address(this);
+        a.isExactIn = false;
+        a.isFirstTransferFromTaker = true;
+        a.useTransferFromAndAquaPush = true;
+        return TakerTraitsLib.build(a);
     }
 
     /// @dev full amount if it quotes; otherwise bisect for the largest amount that quotes (bounded steps).

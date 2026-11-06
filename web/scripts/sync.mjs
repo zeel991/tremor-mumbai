@@ -71,9 +71,18 @@ if (!existsSync(dataPath)) {
 }
 write("full_104w.json", JSON.parse(readFileSync(dataPath, "utf8")));
 
+// ---- price-shock scenarios (contracts/test/scenario/PriceShock.t.sol) ----------------------
+const scenDir = join(repoDir, "data", "scenarios");
+const scenarios = {};
+for (const n of ["crash", "shock_then_calm", "calm"]) {
+  const f = join(scenDir, `${n}.ndjson`);
+  if (existsSync(f)) scenarios[n] = readFileSync(f, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+}
+write("scenarios.json", scenarios);
+
 // ---- report -------------------------------------------------------------------------------
 const found = CONTRACTS.filter((c) => abis[c]);
 console.log(`[sync] deployment: ${deployment.status} (${deployment.path})${deployment.problems.length ? " - " + deployment.problems.join("; ") : ""}`);
 const missing = CONTRACTS.filter((c) => !abis[c]);
 console.log(`[sync] ABIs from artifacts: ${found.length ? found.join(", ") : "none"}${missing.length ? `; hand-written fallback for ${missing.join(", ")}` : ""}`);
-console.log(`[sync] data: ${rel(dataPath)}`);
+console.log(`[sync] data: ${rel(dataPath)}; scenarios: ${Object.keys(scenarios).join(", ") || "none"}`);

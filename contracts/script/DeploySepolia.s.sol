@@ -34,9 +34,12 @@ interface IWETH9 {
 ///   - The receiver's epoch origin is set so the first measurement epoch closes EPOCH_OFFSET after deploy,
 ///     letting a CRE report set the hook fee during testing instead of a week later.
 ///   - Only a live window: historical replay windows need mainnet price history.
+///   - Short window: Sepolia ETH/USD updates hourly, so the live window lasts WINDOW_HOURS (default 3 h, about
+///     3 real Chainlink rounds) and settles the same day. Mainnet and the fork keep 7-day windows.
 ///
 /// Env: UNI_ETH_PRICE (WAD, WETH per UNI, required), LIQ_WETH (default 0.02 ether),
-///      SETS (default 50e18), EPOCH_OFFSET (default 2 hours).
+///      SETS (default 50e18), EPOCH_OFFSET (default 2 hours), WINDOW_HOURS (default 3),
+///      WINDOW_DELAY (seconds until the window opens, default 30 minutes).
 /// forge script script/DeploySepolia.s.sol --rpc-url $SEPOLIA_RPC --broadcast --slow --private-key $DEPLOYER_PK
 contract DeploySepolia is Script {
     using PoolIdLibrary for PoolKey;
@@ -57,6 +60,7 @@ contract DeploySepolia is Script {
     uint256 internal constant V_CAP = 2.25e18; // 150% vol
     uint256 internal constant V_FWD = 0.33e18; // ~57% vol
     uint256 internal constant BUYBACK = 5e15;
+    uint64 internal constant SEPOLIA_MIN_WINDOW = 1 hours;
 
     struct Out {
         TestToken tuni;
@@ -92,7 +96,7 @@ contract DeploySepolia is Script {
         require(address(o.tuni) < WETH, "tUNI must sort below WETH (currency0 = UNI)");
         o.uniFeed = new FixedPriceFeed("tUNI / WETH (test, set from mainnet UNI/ETH)", int256(price), owner);
 
-        o.market = new VarianceMarket(WETH, ETH_USD_FEED, false, 0.05e18, 0.01e18, 2e15 / SCALE, 1e15 / SCALE, 1 hours);
+        o.market = new VarianceMarket(WETH, ETH_USD_FEED, false, 0.05e18, 0.01e18, 2e15 / SCALE, 1e15 / SCALE, 1 hours, SEPOLIA_MIN_WINDOW);
         o.router = new TremorAquaSwapVMRouter(AQUA, WETH, owner, "Tremor SwapVM", "1");
         o.vault = new TremorVault(owner, AQUA, address(o.router), address(o.market));
         o.hook = _deployHook(address(o.market), address(o.uniFeed), owner);
@@ -118,13 +122,14 @@ contract DeploySepolia is Script {
         IERC20(WETH).approve(address(o.operator), type(uint256).max);
         o.operator.addLiquidity(o.key, -887_220, 887_220, int256(liquidity));
 
-        // the live window: now -> now + 7 days, written into one Aqua strategy
+        // the live window, written into one Aqua strategy
         // starts 30 minutes after the script runs: on a live chain later transactions mine in later blocks, and a
         // start in the past is rejected (PastWindow). Quotes before t0 use zero elapsed time.
-        uint64 t0 = uint64(block.timestamp + 30 minutes);
-        o.live = o.market.createWindow(t0, t0 + 7 days, S, V_CAP, V_FWD);
+        uint64 t0 = uint64(block.timestamp + vm.envOr("WINDOW_DELAY", uint256(30 minutes)));
+        uint64 t1 = t0 + uint64(vm.envOr("WINDOW_HOURS", uint256(3)) * 1 hours);
+        o.live = o.market.createWindow(t0, t1, S, V_CAP, V_FWD);
         IERC20(WETH).transfer(address(o.vault), collateral);
-        o.vault.openWindow(o.live, sets, BUYBACK, t0 + 7 days, keccak256("tremor-sepolia-live"));
+        o.vault.openWindow(o.live, sets, BUYBACK, t1, keccak256("tremor-sepolia-live"));
         o.hook.setCover(address(o.vault), address(o.router), o.live);
         o.receiver.setCoverWindow(o.live);
         o.receiver.setStartBlock(uint64(block.number));

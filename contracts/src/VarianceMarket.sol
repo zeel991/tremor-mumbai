@@ -17,7 +17,7 @@ interface IAggregatorV3 {
 
 /// @title VarianceMarket
 /// @notice Complete-set market on realized variance of a Chainlink feed (docs/spec.md §6.2, §7).
-///  - One window [t0, t1), t1 - t0 >= 7 days. LONG pays S*min(V, vCap)/vCap, SHORT pays the rest; LONG + SHORT = S.
+///  - One window [t0, t1), t1 - t0 >= MIN_WINDOW (7 days; hours on the Sepolia build). LONG pays S*min(V, vCap)/vCap, SHORT pays the rest; LONG + SHORT = S.
 ///  - mintSet locks S WETH per set and mints 1 LONG + 1 SHORT, so every claim is fully backed (I1).
 ///  - Variance is read from EVERY round of the feed inside the window (tick level), walking proxy round ids
 ///    inside the phase recorded at creation; a phase change halts the window (phases overlap in time).
@@ -29,7 +29,9 @@ contract VarianceMarket is IVarianceMarket, ReentrancyGuard {
 
     uint256 internal constant WAD = 1e18;
     uint256 public constant YEAR = 31_536_000;
-    uint64 public constant MIN_WINDOW = 7 days;
+    /// @dev 7 days for mainnet and the fork (a feed updating ~4x a day needs a week of rounds); the Sepolia
+    ///      build uses hours, since its ETH/USD feed updates hourly and the demo must settle within the hackathon
+    uint64 public immutable MIN_WINDOW;
     /// @dev extra wait, after the normal settlement time, before a stuck window may use the fallback
     uint64 public constant FALLBACK_DELAY = 7 days;
 
@@ -73,9 +75,14 @@ contract VarianceMarket is IVarianceMarket, ReentrancyGuard {
         uint256 hMin,
         uint256 lambda,
         uint256 kappa,
-        uint64 finalizeDelay
+        uint64 finalizeDelay,
+        uint64 minWindow
     ) {
-        require(h0 >= hMin && h0 < WAD && lambda > 0, "params");
+        require(h0 >= hMin && h0 < WAD && lambda > 0 && minWindow >= 1 hours, "params");
+        // The replay build quotes windows whose outcome is already public (red-team finding: buying a past crash
+        // week's LONG at the forward price is pure profit). It exists only for local mainnet forks.
+        require(!allowPastWindows || block.chainid == 1 || block.chainid == 31_337, "replay build: local fork only");
+        MIN_WINDOW = minWindow;
         weth = IERC20(weth_);
         feed = IAggregatorV3(feed_);
         ALLOW_PAST_WINDOWS = allowPastWindows;

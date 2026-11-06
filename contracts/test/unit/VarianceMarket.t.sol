@@ -42,7 +42,7 @@ abstract contract MarketBase is Test {
     }
 
     function _deploy(bool allowPast) internal returns (VarianceMarket) {
-        return new VarianceMarket(address(weth), address(feed), allowPast, H0, HMIN, LAMBDA, KAPPA, DELAY);
+        return new VarianceMarket(address(weth), address(feed), allowPast, H0, HMIN, LAMBDA, KAPPA, DELAY, 7 days);
     }
 
     function _rid(uint16 phase, uint64 k) internal pure returns (uint80) {
@@ -506,7 +506,7 @@ contract VarianceMarketTest is MarketBase {
         uint64 s0 = t1 + DELAY + 1 days; // fresh window starting after the first one
         vm.warp(s0);
         MockAggregatorV3 f = new MockAggregatorV3(1);
-        VarianceMarket m = new VarianceMarket(address(weth), address(f), false, H0, HMIN, LAMBDA, KAPPA, DELAY);
+        VarianceMarket m = new VarianceMarket(address(weth), address(f), false, H0, HMIN, LAMBDA, KAPPA, DELAY, 7 days);
         f.push(P, s0 - 10);
         uint256 id2 = m.createWindow(s0, s0 + WEEK, S_, VCAP, VFWD);
         f.push(P, s0 + 100); // flat in phase 1, fully ingested
@@ -653,7 +653,7 @@ contract VarianceMarketPathsTest is MarketBase {
 
         MockAggregatorV3 f = new MockAggregatorV3(1);
         f.pushMany(answers, ups);
-        VarianceMarket m = new VarianceMarket(address(weth), address(f), true, H0, HMIN, LAMBDA, KAPPA, DELAY);
+        VarianceMarket m = new VarianceMarket(address(weth), address(f), true, H0, HMIN, LAMBDA, KAPPA, DELAY, 7 days);
         uint256 id = m.createWindow(t0, t1, S, cap, VFWD);
         assertEq(m.window(id).lastRound, _rid(1, uint64(vm.parseJsonUint(vjson, _k(i, "anchorIndex")) + 1)), name);
         assertEq(m.window(id).lastAnswer, vm.parseJsonUint(vjson, _k(i, "p0")), name);

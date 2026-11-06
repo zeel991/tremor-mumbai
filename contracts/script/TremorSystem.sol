@@ -62,7 +62,7 @@ abstract contract TremorSystem {
     function _deployHook(address market, address owner) internal virtual returns (TremorHook);
 
     function _deployCore(address owner) internal returns (Sys memory s) {
-        s.market = new VarianceMarket(WETH, UNI_ETH_FEED, true, 0.05e18, 0.01e18, 2e15, 1e15, 1 hours);
+        s.market = new VarianceMarket(WETH, UNI_ETH_FEED, true, 0.05e18, 0.01e18, 2e15, 1e15, 1 hours, 7 days);
         s.router = new TremorAquaSwapVMRouter(AQUA, WETH, owner, "Tremor SwapVM", "1");
         s.vault = new TremorVault(owner, AQUA, address(s.router), address(s.market));
         s.hook = _deployHook(address(s.market), owner);

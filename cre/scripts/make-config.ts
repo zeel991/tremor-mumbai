@@ -112,7 +112,8 @@ const config = {
 	confirmations: intOpt('confirmations') ?? (sepolia ? 64 : 0),
 	blocksPerRun,
 	logChunk: 100,
-	binanceBaseUrl: 'https://api.binance.com',
+	// Binance's public market-data host serves the same /api/v3/klines and is reachable where api.binance.com is not
+	binanceBaseUrl: opt('binance-url') ?? 'https://data-api.binance.vision',
 	source,
 }
 
