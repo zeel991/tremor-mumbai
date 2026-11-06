@@ -244,6 +244,16 @@ body {
   opacity: 1;
 }
 
+/* ScrollBand: a highlight that flows along the ribbon. */
+@keyframes band-flow {
+  to {
+    stroke-dashoffset: -352;
+  }
+}
+.band-flow {
+  animation: band-flow 2.4s linear infinite;
+}
+
 /* StringProgress: page scroll progress bar on the landing page. */
 .page-progress {
   transform: scaleX(var(--page-progress, 0));
@@ -281,5 +291,8 @@ body {
   }
   .magnetic {
     transform: none;
+  }
+  .band-flow {
+    animation: none;
   }
 }

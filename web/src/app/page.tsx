@@ -4,6 +4,7 @@ import { Mark, Wordmark } from "@/components/Mark";
 import { LiveStrip } from "@/components/landing/LiveStrip";
 import { CountUp, Reveal } from "@/components/landing/motion";
 import { HeroOrb } from "@/components/landing/HeroOrb";
+import { ScrollBand } from "@/components/landing/ScrollBand";
 import { TremorField } from "@/components/landing/TremorField";
 import { WeeklyBars } from "@/components/landing/WeeklyBars";
 import { POOL, summary } from "@/lib/dataset";
@@ -18,7 +19,8 @@ export default function Landing() {
   const { exOutlier, all, worst } = summary;
   return (
     <div
-      className="overflow-x-clip"
+      className="relative overflow-x-clip"
+      data-band-root
       data-string="progress"
       data-string-id="page"
       data-string-key="--page-progress"
@@ -28,6 +30,7 @@ export default function Landing() {
       data-string-exit-vp="bottom"
     >
       <div aria-hidden="true" className="page-progress fixed inset-x-0 top-0 z-[60] h-[2px] origin-left bg-signal" />
+      <ScrollBand />
       <Nav />
       <Hero />
 
@@ -171,7 +174,9 @@ export default function Landing() {
         <div className="bg-grid pointer-events-none absolute inset-0 opacity-50 [mask-image:linear-gradient(to_top,black,transparent)]" />
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(42%_48%_at_50%_50%,rgb(9_9_10/0.88),rgb(9_9_10/0.4)_60%,transparent)]" />
         <Reveal className="relative mx-auto flex max-w-6xl flex-col items-center px-4 py-28 text-center sm:px-6 md:py-36">
-          <Mark size={40} />
+          <div data-band-mark>
+            <Mark size={40} />
+          </div>
           <h2 className="mt-8 max-w-3xl text-[36px] font-medium leading-[1.05] tracking-tight sm:text-[56px] split-up" data-string="split" data-string-split="word-line[start]">See the hook, the cover and the payouts working.</h2>
           <p className="mt-5 max-w-xl text-[16px] text-ink-2">The app reads every number straight from the contracts on a mainnet fork. Quotes work without a wallet.</p>
           <Link href={APP} data-string="magnetic" data-string-strength="0.35" data-string-radius="140" className="btn-primary magnetic mt-9 px-6 py-3 text-[15px]">
@@ -209,7 +214,7 @@ function Nav() {
 function Hero() {
   return (
     <section className="relative flex min-h-[100svh] flex-col bg-[#030304]">
-      <div className="absolute inset-0 opacity-60 md:left-[42%] md:opacity-100">
+      <div data-band-orb className="absolute inset-0 opacity-60 md:left-[42%] md:opacity-100">
         <div data-string="parallax" data-string-parallax="-0.18" className="absolute inset-0">
           <HeroOrb />
         </div>
@@ -224,7 +229,7 @@ function Hero() {
         <p className="fade-up mt-7 max-w-xl text-[17px] leading-relaxed text-ink-2 sm:text-[19px]" style={{ animationDelay: "650ms" }}>
           Swappers pay a fee sized from measured arbitrage loss. It buys cover that pays LPs back when prices swing.
         </p>
-        <div className="fade-up mt-9 flex flex-wrap items-center gap-x-6 gap-y-3" style={{ animationDelay: "800ms" }}>
+        <div data-band-cta className="fade-up mt-9 flex flex-wrap items-center gap-x-6 gap-y-3" style={{ animationDelay: "800ms" }}>
           <Link href={APP} data-string="magnetic" data-string-strength="0.35" data-string-radius="140" className="btn-primary magnetic px-6 py-3 text-[15px]">
             Open the app <Arrow />
           </Link>
@@ -232,7 +237,7 @@ function Hero() {
             Read the code
           </a>
         </div>
-        <div className="fade-up mt-auto pt-16" style={{ animationDelay: "1000ms" }}>
+        <div data-band-strip className="fade-up mt-auto pt-16" style={{ animationDelay: "1000ms" }}>
           <LiveStrip />
         </div>
       </div>
