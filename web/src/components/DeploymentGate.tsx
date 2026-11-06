@@ -14,7 +14,7 @@ export function DeploymentGate({ children }: { children: ReactNode }) {
         </p>
         <p className="mt-2">
           Once the fork deployment has written it, run <Code>npm run sync</Code> in <Code>web/</Code> (or restart <Code>npm run dev</Code>). The{" "}
-          <Link className="underline" href="/data">
+          <Link className="underline" href="/app/data">
             Data view
           </Link>{" "}
           works without it.

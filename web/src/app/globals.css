@@ -1,25 +1,35 @@
 @import "tailwindcss";
 
+/* Tremor brand: black, signal red, white. One dark theme for the whole site. */
 @theme {
-  --color-ink: #16161a;
-  --color-ink-2: #4d4d55;
-  --color-ink-3: #85858e;
-  --color-line: #e4e4e0;
-  --color-surface: #ffffff;
-  --color-page: #f6f6f3;
-  --color-accent: #2a78d6;
-  --color-fees: #2a78d6;
-  --color-arb: #eb6834;
-  --color-loss: #d63c3b;
-  --color-gain: #6b8fb8;
-  --color-warn-bg: #fff7e6;
-  --color-warn-line: #f0c36d;
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --color-page: #09090a;
+  --color-surface: #111113;
+  --color-surface-2: #17171a;
+  --color-hover: #1d1d21;
+  --color-line: #26262b;
+  --color-line-2: #34343a;
+  --color-ink: #f5f5f4;
+  --color-ink-2: #a8a8b0;
+  --color-ink-3: #74747d;
+  --color-signal: #f2452b;
+  --color-signal-2: #ff6a4d;
+  --color-accent: #f2452b;
+  --color-fees: #6ea8ff;
+  --color-arb: #f2452b;
+  --color-loss: #ff5a4a;
+  --color-gain: #8fa9c7;
+  --color-warn-bg: #221a0b;
+  --color-warn-line: #5e4719;
+  --font-sans: var(--font-outfit), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --font-mono: var(--font-jbmono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
+}
+
+html {
+  background: var(--color-page);
 }
 
 body {
@@ -29,24 +39,175 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+::selection {
+  background: var(--color-signal);
+  color: #fff;
+}
+
 .num {
   font-variant-numeric: tabular-nums;
 }
 
 @layer components {
   .btn-primary {
-    border-radius: 0.375rem;
-    background: var(--color-ink);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.5rem;
+    background: var(--color-signal);
     color: #fff;
-    padding: 0.5rem 1rem;
+    padding: 0.55rem 1.1rem;
     font-size: 14px;
     font-weight: 600;
+    transition: background-color 160ms ease, transform 160ms ease;
   }
   .btn-primary:hover:not(:disabled) {
-    background: #2e2e35;
+    background: var(--color-signal-2);
   }
   .btn-primary:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+  .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--color-line-2);
+    padding: 0.5rem 1rem;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--color-ink);
+    transition: border-color 160ms ease, background-color 160ms ease;
+  }
+  .btn-ghost:hover {
+    border-color: var(--color-ink-3);
+    background: var(--color-hover);
+  }
+}
+
+/* ---- landing motion ------------------------------------------------------------------- */
+
+/* Construction grid, after the brand's layout grids. */
+.bg-grid {
+  background-image:
+    linear-gradient(to right, rgb(255 255 255 / 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.045) 1px, transparent 1px);
+  background-size: 64px 64px;
+}
+
+/* Word-by-word blur-in for the hero title. */
+@keyframes word-in {
+  from {
+    opacity: 0;
+    filter: blur(10px);
+    transform: translateY(0.35em);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: none;
+  }
+}
+.word-in {
+  display: inline-block;
+  opacity: 0;
+  animation: word-in 900ms cubic-bezier(0.2, 0.7, 0.1, 1) forwards;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.fade-up {
+  opacity: 0;
+  animation: fade-up 800ms cubic-bezier(0.2, 0.7, 0.1, 1) forwards;
+}
+
+/* Scroll reveal: Reveal.tsx sets data-shown once the element enters the viewport. */
+.reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  filter: blur(6px);
+  transition:
+    opacity 900ms cubic-bezier(0.2, 0.7, 0.1, 1),
+    transform 900ms cubic-bezier(0.2, 0.7, 0.1, 1),
+    filter 900ms cubic-bezier(0.2, 0.7, 0.1, 1);
+  transition-delay: var(--delay, 0ms);
+}
+.reveal[data-shown="true"] {
+  opacity: 1;
+  transform: none;
+  filter: none;
+}
+
+/* Weekly bars grow from the zero line once revealed. */
+.bar {
+  transform: scaleY(0);
+  transition: transform 700ms cubic-bezier(0.2, 0.7, 0.1, 1);
+  transition-delay: calc(var(--i) * 6ms);
+}
+[data-shown="true"] .bar {
+  transform: scaleY(1);
+}
+
+/* A pulse travelling along the how-it-works rail. */
+@keyframes rail {
+  from {
+    transform: translateX(-30%);
+  }
+  to {
+    transform: translateX(330%);
+  }
+}
+.rail-pulse {
+  animation: rail 3.6s cubic-bezier(0.6, 0, 0.4, 1) infinite;
+}
+
+/* Cursor spotlight on cards (set --mx/--my from Spotlight.tsx). */
+.spotlight {
+  position: relative;
+  isolation: isolate;
+}
+.spotlight::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(420px circle at var(--mx, 50%) var(--my, -40%), rgb(242 69 43 / 0.13), transparent 60%);
+  opacity: 0;
+  transition: opacity 300ms ease;
+  z-index: -1;
+}
+.spotlight:hover::before {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .word-in,
+  .fade-up {
+    animation: none;
+    opacity: 1;
+  }
+  .reveal {
+    opacity: 1;
+    transform: none;
+    filter: none;
+    transition: none;
+  }
+  .bar {
+    transform: none;
+    transition: none;
+  }
+  .rail-pulse {
+    animation: none;
+    display: none;
   }
 }

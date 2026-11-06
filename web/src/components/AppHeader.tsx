@@ -6,28 +6,26 @@ import { useConnect, useConnection, useConnectors, useDisconnect, useSwitchChain
 import { forkChain, RPC_URL } from "@/lib/chain";
 import { shortAddr } from "@/lib/format";
 import { useWalletOnFork } from "@/lib/walletGuard";
+import { Wordmark } from "./Mark";
 
 const NAV = [
-  { href: "/lp", label: "LP" },
-  { href: "/trade", label: "Trade cover" },
-  { href: "/data", label: "Data" },
+  { href: "/app/lp", label: "LP" },
+  { href: "/app/trade", label: "Trade cover" },
+  { href: "/app/data", label: "Data" },
 ];
 
-export function Header() {
+export function AppHeader() {
   const path = usePathname();
   return (
-    <header className="border-b border-line bg-surface">
+    <header className="sticky top-0 z-40 border-b border-line bg-page/80 backdrop-blur-xl">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
-        <Link href="/" className="flex items-baseline gap-2">
-          <span className="text-[17px] font-bold tracking-tight">Tremor</span>
-          <span className="hidden text-[12px] text-ink-3 sm:inline">hook-funded variance cover for Uniswap LPs</span>
-        </Link>
-        <nav className="flex gap-1">
+        <Wordmark />
+        <nav className="flex gap-1 rounded-lg border border-line bg-surface p-1">
           {NAV.map((n) => (
             <Link
               key={n.href}
               href={n.href}
-              className={`rounded-md px-3 py-1.5 text-[14px] ${path === n.href ? "bg-[#ecece8] font-semibold" : "text-ink-2 hover:bg-[#f2f2ee]"}`}
+              className={`rounded-md px-3 py-1.5 text-[14px] transition-colors ${path === n.href ? "bg-hover font-medium text-ink" : "text-ink-2 hover:text-ink"}`}
             >
               {n.label}
             </Link>
@@ -55,7 +53,7 @@ function Wallet() {
       <div className="flex items-center gap-2 text-[13px]">
         <span className="hidden text-ink-3 md:inline">read-only via {RPC_URL}</span>
         <button
-          className="rounded-md border border-line px-3 py-1.5 font-medium hover:bg-[#f2f2ee] disabled:opacity-50"
+          className="btn-primary disabled:opacity-50"
           disabled={!injected || connect.isPending}
           onClick={() => injected && connect.mutate({ connector: injected })}
         >
@@ -80,7 +78,7 @@ function Wallet() {
       )}
       {guard.state === "ok" && <span className="text-ink-3">wallet on local fork</span>}
       <span className="font-mono">{shortAddr(address)}</span>
-      <button className="rounded-md border border-line px-2 py-1 hover:bg-[#f2f2ee]" onClick={() => disconnect.mutate({})}>
+      <button className="rounded-md border border-line px-2 py-1 hover:bg-hover" onClick={() => disconnect.mutate({})}>
         Disconnect
       </button>
     </div>

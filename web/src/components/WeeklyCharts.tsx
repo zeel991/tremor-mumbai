@@ -10,13 +10,13 @@ const PAD_R = 12;
 const PLOT_W = W - PAD_L - PAD_R;
 
 const C = {
-  fees: "#2a78d6",
-  arb: "#eb6834",
+  fees: "#6ea8ff",
+  arb: "#f2452b",
   gain: "#8fa9c7",
-  loss: "#d63c3b",
-  grid: "#ecece8",
-  axis: "#85858e",
-  band: "#f1f1ee",
+  loss: "#ff5a4a",
+  grid: "#26262b",
+  axis: "#74747d",
+  band: "#1a1a1e",
 };
 
 function compact(n: number) {
@@ -97,12 +97,12 @@ export function WeeklyCharts({ weeks }: { weeks: Week[] }) {
       </g>
     );
 
-  const crosshair = (top: number, bot: number) => <line x1={xc(idx)} x2={xc(idx)} y1={top} y2={bot} stroke="#16161a" strokeOpacity={0.35} strokeWidth={1} />;
+  const crosshair = (top: number, bot: number) => <line x1={xc(idx)} x2={xc(idx)} y1={top} y2={bot} stroke="var(--color-ink)" strokeOpacity={0.35} strokeWidth={1} />;
 
   return (
     <div>
       {/* selected-week readout (hover a chart to move it) */}
-      <div className="num mb-4 grid grid-cols-2 gap-x-6 gap-y-1 rounded-md border border-line bg-[#fafaf8] p-3 text-[13px] sm:grid-cols-3 lg:grid-cols-6">
+      <div className="num mb-4 grid grid-cols-2 gap-x-6 gap-y-1 rounded-md border border-line bg-surface-2 p-3 text-[13px] sm:grid-cols-3 lg:grid-cols-6">
         <div>
           <div className="text-[11.5px] text-ink-3">{hover === null ? "Worst week" : "Week of"}</div>
           <div className="font-semibold">{sel.week}</div>
@@ -135,8 +135,8 @@ export function WeeklyCharts({ weeks }: { weeks: Week[] }) {
           {crosshair(aTop, aBot)}
           {idx !== outlierIdx && (
             <>
-              <circle cx={xc(idx)} cy={ya(sel.fees_1m)} r={4} fill={C.fees} stroke="#fff" strokeWidth={2} />
-              <circle cx={xc(idx)} cy={ya(sel.arb_1m)} r={4} fill={C.arb} stroke="#fff" strokeWidth={2} />
+              <circle cx={xc(idx)} cy={ya(sel.fees_1m)} r={4} fill={C.fees} stroke="var(--color-surface)" strokeWidth={2} />
+              <circle cx={xc(idx)} cy={ya(sel.arb_1m)} r={4} fill={C.arb} stroke="var(--color-surface)" strokeWidth={2} />
             </>
           )}
           {xAxis(A_H - 8)}
@@ -153,7 +153,7 @@ export function WeeklyCharts({ weeks }: { weeks: Week[] }) {
         <svg viewBox={`0 0 ${W} ${B_H}`} className="w-full" role="img" aria-label="Weekly LP net per $1M TVL, losing weeks in red">
           {[-6000, -4000, -2000, 0, 2000, 4000].map((t) => (
             <g key={t}>
-              <line x1={PAD_L} x2={W - PAD_R} y1={yb(t)} y2={yb(t)} stroke={t === 0 ? "#c9c9c4" : C.grid} strokeWidth={1} />
+              <line x1={PAD_L} x2={W - PAD_R} y1={yb(t)} y2={yb(t)} stroke={t === 0 ? "var(--color-line-2)" : C.grid} strokeWidth={1} />
               <text x={PAD_L - 8} y={yb(t) + 4} textAnchor="end" fontSize="11" fill={C.axis}>
                 {compact(t)}
               </text>

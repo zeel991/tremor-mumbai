@@ -214,7 +214,7 @@ export function TradeView() {
           <label className="mt-4 block text-[12px] text-ink-2" htmlFor="amt">
             You pay ({inSym}, exact)
           </label>
-          <div className="mt-1 flex items-center rounded-md border border-line bg-white focus-within:border-accent">
+          <div className="mt-1 flex items-center rounded-md border border-line bg-surface-2 focus-within:border-accent">
             <input
               id="amt"
               inputMode="decimal"
@@ -231,7 +231,7 @@ export function TradeView() {
             </div>
           )}
 
-          <div className="mt-4 rounded-md border border-line bg-[#fafaf8] p-3 text-[13.5px]">
+          <div className="mt-4 rounded-md border border-line bg-surface-2 p-3 text-[13.5px]">
             {!order && win.data && !win.data.order.ok && <p className="text-loss">No strategy order: {win.data.order.error}</p>}
             {amount === undefined && <p className="text-ink-3">Enter an amount.</p>}
             {quote.isFetching && !q && <p className="text-ink-3">Quoting…</p>}
@@ -402,7 +402,7 @@ function Pill({ active, onClick, children }: { active: boolean; onClick: () => v
   return (
     <button
       onClick={onClick}
-      className={`rounded-full border px-3.5 py-1.5 text-[13.5px] ${active ? "border-ink bg-ink text-white [&_span]:text-[#c9c9cf]" : "border-line bg-surface hover:bg-[#f2f2ee]"}`}
+      className={`rounded-full border px-3.5 py-1.5 text-[13.5px] ${active ? "border-ink bg-ink text-page [&_span]:text-ink-3" : "border-line bg-surface hover:bg-hover"}`}
     >
       {children}
     </button>
@@ -416,7 +416,7 @@ function Segmented({ value, options, labels, onChange }: { value: string; option
         <button
           key={o}
           onClick={() => onChange(o)}
-          className={`rounded px-3 py-1 text-[13.5px] ${value === o ? "bg-ink text-white" : "text-ink-2 hover:bg-[#f2f2ee]"}`}
+          className={`rounded px-3 py-1 text-[13.5px] ${value === o ? "bg-ink text-page" : "text-ink-2 hover:bg-hover"}`}
         >
           {labels?.[o] ?? o}
         </button>

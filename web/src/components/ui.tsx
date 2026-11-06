@@ -33,10 +33,10 @@ export function Stat({ label, value, note, tag }: { label: string; value: ReactN
 export function Tag({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "measured" | "derived" | "estimate" | "warn" }) {
   const tones = {
     neutral: "border-line text-ink-2",
-    measured: "border-[#b9d3f3] bg-[#eef5fd] text-[#1d5aa6]",
-    derived: "border-[#e5d3f5] bg-[#f7f0fd] text-[#6a3a99]",
-    estimate: "border-warn-line bg-warn-bg text-[#8a5a00]",
-    warn: "border-warn-line bg-warn-bg text-[#8a5a00]",
+    measured: "border-[#24426b] bg-[#0f1a2a] text-[#8fbaff]",
+    derived: "border-[#4a3166] bg-[#1b1326] text-[#c9a6f0]",
+    estimate: "border-warn-line bg-warn-bg text-[#f0c36d]",
+    warn: "border-warn-line bg-warn-bg text-[#f0c36d]",
   } as const;
   return <span className={`inline-block rounded border px-1.5 py-px text-[11px] font-medium uppercase tracking-wide ${tones[tone]}`}>{children}</span>;
 }
@@ -45,7 +45,7 @@ export function Notice({ title, children, tone = "warn" }: { title: string; chil
   const tones = {
     warn: "border-warn-line bg-warn-bg",
     info: "border-line bg-surface",
-    error: "border-[#f0a3a3] bg-[#fdf0f0]",
+    error: "border-[#6b2a24] bg-[#22100e]",
   } as const;
   return (
     <div className={`rounded-lg border p-4 text-[14px] ${tones[tone]}`}>
@@ -56,7 +56,7 @@ export function Notice({ title, children, tone = "warn" }: { title: string; chil
 }
 
 export function Code({ children }: { children: ReactNode }) {
-  return <code className="rounded bg-[#efefeb] px-1 py-px font-mono text-[12.5px]">{children}</code>;
+  return <code className="rounded bg-surface-2 px-1 py-px font-mono text-[12.5px]">{children}</code>;
 }
 
 export function Mono({ children, title }: { children: ReactNode; title?: string }) {
