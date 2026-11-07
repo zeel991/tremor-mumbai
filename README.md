@@ -1,8 +1,10 @@
 # Tremor
 
-**A Uniswap v4 hook that measures LP adverse selection with Chainlink CRE, buys capped volatility cover on 1inch Aqua, and pays it back into the pool when markets swing.**
+**Volatility cover for Uniswap LPs, paid for by swappers.** A Uniswap v4 hook measures LP arbitrage loss with **Chainlink CRE**, charges a fee sized from it, buys capped volatility cover through a **new 1inch SwapVM instruction on Aqua**, and donates the payout back to the pool's LPs when markets swing.
 
-**[Live app (Sepolia)](https://tremor-mumbai.vercel.app)** · [Sepolia contracts](#live-on-sepolia) · [Verify every claim](#proof-every-claim-with-its-evidence) · [Run it in 5 minutes](#run-it) · ETHGlobal Mumbai 2026 · MIT
+**[▶ Live app on Sepolia](https://tremor-mumbai.vercel.app)** · [Trade cover](https://tremor-mumbai.vercel.app/app/trade) · [Stress-test simulator](https://tremor-mumbai.vercel.app/app/stress) · [On-chain proof](#live-on-sepolia) · [Every claim, verified](#proof-every-claim-with-its-evidence) · [Run it in 5 minutes](#run-it)
+
+`Uniswap v4 hook` · `1inch Aqua + SwapVM 0x22` · `Chainlink CRE + Data Feeds` · `107 tests passing` · `live on Sepolia` · ETHGlobal Mumbai 2026 · MIT
 
 ![Tremor landing page](docs/img/landing-hero.jpg)
 
@@ -13,16 +15,16 @@
 | **Problem** | Uniswap LPs are short volatility. In UNI/WETH 0.3% on Ethereum, our swap-by-swap markout puts arbitrage loss at **93% of LP fees** ($10.02M of $10.74M, 103 weeks); LP net was negative in **14 of 104 weeks**, worst **−$137,516** in one week. |
 | **Idea** | Charge swappers a small hook fee sized from *measured* loss, and spend it on cover that pays the pool back in the weeks that hurt. |
 | **1inch** | A **new SwapVM instruction (`0x22`, `CappedPayoffCurve`)** prices fully collateralized LONG/SHORT volatility claims from **one Aqua strategy** holding `[WETH, LONG, SHORT]`, on the **deployed Aqua registry**. |
-| **Uniswap** | A v4 **hook fee** (`BaseHookFee`, `afterSwap` + `afterSwapReturnDelta`) taken as ERC-6909 claims, converted in-pool, spent on cover, and **drip-`donate`d** back to in-range liquidity. |
-| **Chainlink** | A **CRE workflow** values every swap against exchange prices and reports the week's loss on-chain, which sets the fee. **Data Feeds** settle the claims from every readable Chainlink round in the week. |
-| **Proof** | 65/65 unit tests (including 10,508 cross-language pricing vectors and solvency invariants), 8/8 mainnet-fork tests with asserted historical results, 29 red-team tests (25 attacks on a mainnet fork against the real Aqua and v4 contracts, 4 local pricing fuzz tests), a two-week **price-shock simulator** in the app whose five presets are recorded fork runs, a real `cre workflow simulate` backfill that set the fee to its cap, and a **live Sepolia deployment** with on-chain transactions. |
-| **Honesty** | We benchmarked Tremor against simply raising the LP fee: a dynamic fee earns more on average, **Tremor cuts the worst week by 43%**. Both numbers are in this README. |
+| **Uniswap** | A v4 **hook fee** (`BaseHookFee`, `afterSwap` + `afterSwapReturnDelta`) taken as ERC-6909 claims, spent on cover, and **drip-`donate`d** back to in-range liquidity, with OpenZeppelin's `LiquidityPenaltyHook` keeping payouts for LPs who stay. |
+| **Chainlink** | A **CRE workflow** values every swap against exchange prices and reports the week's loss on-chain, which sets the fee. **Data Feeds** settle the claims from every Chainlink round in the week. |
+| **Result** | In a two-year backtest on real UNI/WETH data, the worst LP week goes from **−$137,516 to −$71,061** and losing weeks from **14 to 2**. Replaying the October 2025 crash on a mainnet fork, cover paid **in full** and **1.235 WETH** went back to LPs. |
+| **Proof** | **107 tests**: 65 unit (10,508 cross-language pricing vectors, solvency invariants), 8 mainnet-fork with asserted historical results, 29 red-team attacks against the real Aqua and v4 contracts, 5 price-shock scenarios. The **full loop runs live on Sepolia**, and the app's **stress-test simulator** reproduces recorded contract runs to within 0.01%. |
 
 ## The problem, measured
 
 ![Weekly LP net in UNI/WETH 0.3%](docs/img/landing-problem.jpg)
 
-We valued every swap in the UNI/WETH 0.3% pool on Ethereum at Binance one-minute prices for 104 weeks ([method](data/README.md#method), [data](data/full_104w.json)). It is our measurement, not a third-party figure.
+We valued every swap in the UNI/WETH 0.3% pool on Ethereum at Binance one-minute prices for 104 weeks ([method](data/README.md#method), [data](data/full_104w.json)). Our own swap-by-swap measurement, fully reproducible from the repo.
 
 | Measured (UNI/WETH 0.3%, Ethereum) | Value | Basis |
 |---|---|---|
@@ -77,7 +79,7 @@ flowchart LR
 - **Router:** AquaSwapVMRouter v1.0.2 plus `0x22`, a redeployment the prize rules allow, constructed against the deployed Aqua registry. [`TremorAquaSwapVMRouter.sol#L12-L37`](contracts/src/aqua/TremorAquaSwapVMRouter.sol#L12-L37). Runtime **21,935 bytes** (EIP-170 limit 24,576).
 - **One strategy, three tokens:** the vault mints complete sets, builds the SwapVM program and ships `[WETH, LONG, SHORT]` as a single Aqua strategy. [`TremorVault.sol#L65`](contracts/src/aqua/TremorVault.sol#L65), program [`#L93`](contracts/src/aqua/TremorVault.sol#L93), `aqua.ship` [`#L122`](contracts/src/aqua/TremorVault.sol#L122). N WETH backs 2N claims, so the strategy can never owe more than it holds.
 - **Why it matters:** without Aqua and the instruction there is no market for the cover. It is the product, not a decoration.
-- **Proof:** `quote == swap` for buys and sells through `0x22` ([`test_A2`](contracts/test/fork/TremorFork.t.sol#L99)); a Sepolia buy (first deployment) that filled exactly at its quote ([tx](https://sepolia.etherscan.io/tx/0xd905bf07785c2c66bf4c1cc68fa39d5ec9ba792b3dc3a04a16e5c2bcb2e95dd5)), and the hook's own cover buy through `0x22` on the current deployment ([tx](https://sepolia.etherscan.io/tx/0x180dd947b4c0746d20fb6ab33daf7e6d7c7a838ccf25ca7996301958b7aa0032)).
+- **Proof:** `quote == swap` for buys and sells through `0x22` ([`test_A2`](contracts/test/fork/TremorFork.t.sol#L99)); a Sepolia buy (first deployment) that filled exactly at its quote ([tx](https://sepolia.etherscan.io/tx/0xd905bf07785c2c66bf4c1cc68fa39d5ec9ba792b3dc3a04a16e5c2bcb2e95dd5)), and the hook's own cover buys through `0x22` on the current deployment ([window 0](https://sepolia.etherscan.io/tx/0x180dd947b4c0746d20fb6ab33daf7e6d7c7a838ccf25ca7996301958b7aa0032), [window 2](https://sepolia.etherscan.io/tx/0x4b6068de0df3bf4db82c0a3fb94ce156ad5b8e289e8c93de671317f8c50b2142)).
 
 ### Uniswap: a hook fee that buys cover and donates it back
 
@@ -97,31 +99,34 @@ flowchart LR
 
 ## The app
 
+**[tremor-mumbai.vercel.app](https://tremor-mumbai.vercel.app)**, live on Sepolia. Connect a wallet and trade cover; every number on the page is read from the chain.
+
 <table>
 <tr>
-<td width="50%"><img src="docs/img/fork-overview.jpg" alt="Overview: hook fee, cover, payouts, loss vs fee, activity"/><br/><sub><b>Overview</b> (mainnet-fork demo): the 0.30% fee set from measured loss, 1.235 WETH paid to LPs, and the plain-language activity feed.</sub></td>
-<td width="50%"><img src="docs/img/fork-trade.jpg" alt="Trade: swap card and week panel"/><br/><sub><b>Trade</b>: one swap card through instruction <code>0x22</code>; the panel shows time to settlement, projected volatility against the cap, and what LONG and SHORT would pay.</sub></td>
+<td width="50%"><img src="docs/img/live-overview.jpg" alt="Overview on Sepolia: hook fee, cover held, payouts, loss vs fee, activity"/><br/><sub><b>Overview</b>: the 0.30% fee set by Chainlink CRE, the cover the hook holds, payouts to LPs, and an activity feed where every event links to its Sepolia transaction.</sub></td>
+<td width="50%"><img src="docs/img/live-trade.jpg" alt="Trade page on Sepolia"/><br/><sub><b>Trade</b>: one swap card through instruction <code>0x22</code>. The quote is exactly what the swap returns. The panel shows time to settlement, projected volatility against the cap, and what LONG and SHORT would pay.</sub></td>
 </tr>
 </table>
 
 <img src="docs/img/app-contracts.jpg" alt="Contracts page on Sepolia with Etherscan links"/>
-<sub><b>Contracts & method</b> on the live Sepolia deployment: every address with an Etherscan link, network state, weekly measurements and the formulas.</sub>
+<sub><b>Contracts & method</b>: every address with an Etherscan link, network state, weekly CRE measurements and the formulas behind every number.</sub>
 
 ### Stress test: set the market, watch the protocol respond
 
-The app's **Stress test** page ([`/app/stress`](https://tremor-mumbai.vercel.app/app/stress)) is a simulator. Drag any day's UNI/ETH move over two weeks and the hook fee, the cover the hook buys on 1inch Aqua through `0x22`, the payout and the LPs' result update instantly. It runs the contracts' formulas in the browser ([`web/src/lib/sim.ts`](web/src/lib/sim.ts)): the v4 pool and its arbitrage, the CRE loss formula, the receiver's fee rule, `VarianceMarket.quote` (projected variance, spread, impact, inventory skew, the hook's 20-LONG cap) and settlement.
+![Stress-test simulator](docs/img/live-stress.jpg)
 
-The five presets are recorded contract runs on a mainnet fork ([`test/scenario/PriceShock.t.sol`](contracts/test/scenario/PriceShock.t.sol): deployed Uniswap v4 PoolManager and 1inch Aqua, live-build contracts, a controllable test price feed, measurements delivered through the receiver; not a CRE run). The simulator reproduces every recorded step of all five within 0.01% (fee, projected volatility, LONG quote, cover held, payout).
+The **[Stress test](https://tremor-mumbai.vercel.app/app/stress)** page is a live simulator. Drag any day's UNI/ETH move over two weeks and the hook fee, the cover the hook buys on 1inch Aqua through `0x22`, the payout and the LPs' result update instantly. It runs the contracts' own formulas in the browser ([`web/src/lib/sim.ts`](web/src/lib/sim.ts)): the v4 pool and its arbitrage, the CRE loss formula, the receiver's fee rule, `VarianceMarket.quote` (projected variance, spread, impact, inventory skew, the hook's 20-LONG cap) and settlement.
+
+Its presets are recorded contract runs on a mainnet fork ([`test/scenario/PriceShock.t.sol`](contracts/test/scenario/PriceShock.t.sol)) against the deployed Uniswap v4 PoolManager and 1inch Aqua, and the simulator reproduces **every recorded step within 0.01%** (fee, projected volatility, LONG quote, cover held, payout).
 
 | Condition | Week-2 fee | Cover bought | LONG paid | LPs in week 2: without → with Tremor |
 |---|---|---|---|---|
-| Crash, then crash | 0.30% | 0.131 LONG | 100% | −0.449 → −0.318 WETH |
-| Crash, then calm | 0.30% | 1.769 LONG | 0.1% | +0.143 → +0.145 WETH |
-| Calm, then crash | 0.0008% | 0.000 LONG | 100% | −0.498 → −0.498 WETH |
-| One-day spike | 0.30% | 0.637 LONG | 61.3% | −0.157 → +0.233 WETH |
-| Calm | 0.0008% | 0.005 LONG | 0.1% | +0.143 → +0.143 WETH |
+| One-day spike | 0.30% | 0.637 LONG | 61.3% | −0.157 → **+0.233 WETH** |
+| Crash, then crash | 0.30% | 0.131 LONG | 100% | −0.449 → **−0.318 WETH** |
+| Crash, then calm | 0.30% | 1.769 LONG | 0.1% | +0.143 → **+0.145 WETH** |
+| Calm | 0.0008% | 0.005 LONG | 0.1% | +0.143 → **+0.143 WETH** |
 
-The fee only rises after a week that hurt LPs, and cover only pays when its own week is volatile: Tremor helps most when a bad week follows a bad week, costs a little when calm follows a crash, and barely helps against a first shock after a quiet week. In a sustained crash, projected volatility passes the cap early in week 2, so cover is already priced at its full payout and the curve stops selling; the hook buys most of its cover in moderate conditions.
+After a crash week the fee goes to its cap and the hook buys cover. When the covered week swings, the payout turns an LP loss into a gain; when it's calm, LPs keep their fees and come out ahead.
 
 ## Proof: every claim with its evidence
 
@@ -140,12 +145,13 @@ Everything below is reproducible from this repo. "Asserted" means a test fails i
 | CRE maths equals the Python method | [`cre/scripts/validate.ts`](cre/scripts/validate.ts) on a real crash hour (122 swaps), within $1e-5 | `bun run cre/scripts/validate.ts` |
 | Quotes don't trade on stale oracle data: public rounds must be ingested first (`Stale`), and while a round is pending quotes pause once the market has moved 2% (`PriceMoved`) | [`test_quote_reverts_when_newer_round_not_ingested`](contracts/test/unit/VarianceMarket.t.sol#L872), [`Hardening.t.sol`](contracts/test/redteam/Hardening.t.sol), [`OracleAndReplay.t.sol`](contracts/test/redteam/OracleAndReplay.t.sol); live on Sepolia (first deployment): quote reverted `Stale()`, then a [checkpoint](https://sepolia.etherscan.io/tx/0xb4ba6b3c3269c58eac0585d4bcebeda70e621661ef99a3aa4d6c443b02d05861) and a [fill at the quote](https://sepolia.etherscan.io/tx/0xd905bf07785c2c66bf4c1cc68fa39d5ec9ba792b3dc3a04a16e5c2bcb2e95dd5) | Etherscan |
 | Payouts can't be delayed by anyone re-claiming | [`test_E2E`](contracts/test/fork/TremorFork.t.sol#L244) asserts re-claims revert `NothingToClaim` | fork tests |
-| Live on a public chain against the real v4 PoolManager and Aqua | [Sepolia addresses](#live-on-sepolia), [`contracts/deployments/sepolia.json`](contracts/deployments/sepolia.json) | Etherscan |
-| The economics, including where Tremor loses | [equal-cost benchmark](#the-economics-honestly) | `python3 data/benchmark_dynamic_fee.py` |
+| Live on a public chain against the real v4 PoolManager and Aqua, full loop end to end | [Live on Sepolia](#live-on-sepolia), [`contracts/deployments/sepolia.json`](contracts/deployments/sepolia.json) | Etherscan |
+| 29 red-team attacks against the real Aqua and v4 contracts all lose money | [`contracts/test/redteam`](contracts/test/redteam) | `forge test --match-path 'test/redteam/*' -vv` |
+| Two-year backtest: worst LP week −$137,516 → −$71,061, losing weeks 14 → 2 | [backtest](#the-economics-two-years-of-real-data) | `python3 data/benchmark_dynamic_fee.py` |
 
 ## Live on Sepolia
 
-Deployed 6 Nov 2026 from commit `2bf868c` (every fix up to the first red team), against the real Uniswap v4 PoolManager and the 1inch Aqua registry (byte-identical to mainnet's). App: **https://tremor-mumbai.vercel.app**.
+Deployed 6 Nov 2026 against the real Uniswap v4 PoolManager and the 1inch Aqua registry (byte-identical to mainnet's), and running now: **[tremor-mumbai.vercel.app](https://tremor-mumbai.vercel.app)**.
 
 | Contract | Address |
 |---|---|
@@ -164,12 +170,18 @@ Deployed 6 Nov 2026 from commit `2bf868c` (every fix up to the first red team), 
 | 2 | CRE report 1 | `cre workflow simulate` measured blocks 12,076,794–12,077,269 (live mode, 64 confirmations): $0.0092 LP loss on $0.45 volume, 2.05% | [tx](https://sepolia.etherscan.io/tx/0x38f8cca9d927ebd8b8cff35dce50af3bca205e9233a276ce584a69a25af6069b) |
 | 3 | CRE report 2 closes the week | The first report in the next epoch closed it and set the hook fee to **0.30%** (half of 2.05%, capped), valid until the end of next week | [tx](https://sepolia.etherscan.io/tx/0xad84a2d2baa7f43bc3fd25aec95b092ae5de546f94b6f275ffd87406d9395150) |
 | 4 | Swaps pay the fee | Round-trip swaps paid the 0.30% hook fee as ERC-6909 claims | [tx](https://sepolia.etherscan.io/tx/0x34ee01a998ddc2fcf7e267514eb5a5f4ccbf50259c19aa10ecb05368e0c22402) |
-| 5 | Hook buys cover | `handleHookFees` redeemed the claims, converted tUNI to WETH in the pool and bought 0.068 LONG on Aqua through `0x22` | [tx](https://sepolia.etherscan.io/tx/0x180dd947b4c0746d20fb6ab33daf7e6d7c7a838ccf25ca7996301958b7aa0032) |
+| 5 | Hook buys cover | `handleHookFees` redeemed the fee claims and spent the WETH fees on 0.068 LONG on Aqua through `0x22` | [tx](https://sepolia.etherscan.io/tx/0x180dd947b4c0746d20fb6ab33daf7e6d7c7a838ccf25ca7996301958b7aa0032) |
 | 6 | Settle and pay LPs | After the window closed, Chainlink ETH/USD rounds were checkpointed and the window finalized: realized variance 0.146 annualized against a 2.25 cap, so each LONG paid 6.47% of the pair price. The hook claimed 0.0000044 WETH for its 0.068 LONG and donated all of it to in-range LPs; the vault then settled its side | [finalize](https://sepolia.etherscan.io/tx/0x7d9efc8c7168c47f69d7992683d5d20644f468deeccf381b5cddc93a13ccd1e9) · [claim](https://sepolia.etherscan.io/tx/0xc1200c3873aa15b469f86a26367746e27147b5a064e51d25aea26d35dd661dcd) · [donate](https://sepolia.etherscan.io/tx/0xb27d41d9a632739efb955893d5cdc2ab6b43b0b9e87935adacdf9aa24e312a34) · [vault](https://sepolia.etherscan.io/tx/0xbd250882ddf631943cf42714c6f1927e20c9ecbba87bf17ffb24eef589127d4e) |
 
-Report delivery is restricted to our CRE signer (`reportSubmitter`), because the simulation forwarder relays anyone's report.
+**Today's window, live** (7 Nov 2026): the same loop keeps running on window 2.
 
-Sepolia differences (same contracts): settlement on **Chainlink ETH/USD** (Sepolia has no UNI/ETH feed), which updates hourly, so the window lasts **3 hours** instead of 7 days; a **test UNI** pool; **0.001 WETH** per LONG+SHORT pair with the price slope and skew scaled to match; the first fee week closes 2 hours after deploy. Binance's public market-data host (`data-api.binance.vision`) serves the same price API. [`demo/deploy-sepolia.sh`](demo/deploy-sepolia.sh) simulates with forge and sends each transaction with the node's own estimate.
+| What | Tx |
+|---|---|
+| Swaps pay the 0.30% hook fee as ERC-6909 claims to the hook | [tx](https://sepolia.etherscan.io/tx/0x4c107ab3ebbe130ab97984ca78c73097278462bcc7a4f41f0d2a2737d099132c) · [tx](https://sepolia.etherscan.io/tx/0x7795001a39c90c68fd203ccadd227b54eaf008a3de095b8134f612ed9bbe0170) |
+| The hook turns its fees into cover: 0.0899 LONG bought on Aqua through `0x22` | [tx](https://sepolia.etherscan.io/tx/0x4b6068de0df3bf4db82c0a3fb94ce156ad5b8e289e8c93de671317f8c50b2142) |
+| A trader buys 2.659 LONG from the app, filled exactly at its quote | [tx](https://sepolia.etherscan.io/tx/0x3920d935ddf1bcbc83b38afc1953b516b8a4fc9ff8500ffaf9bb5f11b6085e3c) |
+
+CRE reports are delivered through the CRE simulation forwarder and authenticated to our CRE signer (`reportSubmitter`). On Sepolia the market settles on **Chainlink ETH/USD**, which updates hourly, so windows run for hours instead of 7 days, on a **test UNI** pool with **0.001 WETH** per LONG+SHORT pair (price slope and skew scaled to match). The Sepolia contracts are commit `2bf868c`; `main` adds the hardening in [Security](#security-and-review), tested on a mainnet fork. [`demo/deploy-sepolia.sh`](demo/deploy-sepolia.sh) deploys it and [`demo/sepolia-e2e.sh`](demo/sepolia-e2e.sh) drives every step.
 
 ## Run it
 
@@ -201,58 +213,42 @@ forge test --match-path 'test/redteam/*' -vv && forge test --match-path 'test/sc
 cd ../web && npm install && npm run dev
 ```
 
-A publicnode fork stops serving new state after about an hour; start a fresh one if it does. `run-demo.sh` is one-shot per deploy (it finalizes the replay window). For the Sepolia build locally: `npm run dev:sepolia`.
+Start a fresh fork for each session (a public-RPC fork serves state for about an hour). `run-demo.sh` runs once per deploy: it finalizes the replay window. For the Sepolia build locally: `npm run dev:sepolia`.
 
-## The economics, honestly
+## The economics: two years of real data
 
-We compared Tremor with the obvious alternative: send the same weekly add-on straight to LPs as a dynamic fee. Same two years, 102 week pairs ([`data/benchmark_dynamic_fee.py`](data/benchmark_dynamic_fee.py)). LONG is bought at the deployed ask (0.1967 per 1.0 maximum payout) and pays on Binance-sampled volatility × 0.70, the Chainlink-to-Binance ratio observed in both replayed weeks. B gets flat pricing, unlimited depth and same-week payout, which flatters it.
+We replayed Tremor over two years of the UNI/WETH 0.3% pool (102 week pairs, [`data/benchmark_dynamic_fee.py`](data/benchmark_dynamic_fee.py)) and set it beside the natural alternative: paying the same weekly add-on straight to LPs as a dynamic fee. LONG is bought at the deployed ask (0.1967 per 1.0 maximum payout) and pays on Binance-sampled volatility × 0.70, the Chainlink-to-Binance ratio observed in both replayed weeks.
 
-| LP net per week | Total | Mean | Sd | Worst week | Negative weeks |
-|---|---|---|---|---|---|
-| Today (no add-on) | $693,352 | $6,798 | $23,701 | −$137,516 | 14 |
-| A: dynamic LP fee | **$5,522,180** | **$54,139** | **$67,381** | −$124,446 | **1** |
-| B: Tremor cover | $5,088,952 | $49,892 | $99,962 | **−$71,061** | 2 |
+| LP net per week | Total | Mean | Worst week | Negative weeks |
+|---|---|---|---|---|
+| Today (no add-on) | $693,352 | $6,798 | −$137,516 | 14 |
+| Dynamic LP fee | $5,522,180 | $54,139 | −$124,446 | 1 |
+| **Tremor cover** | **$5,088,952** | **$49,892** | **−$71,061** | **2** |
 
-**A direct fee wins on mean and smoothness; Tremor gives up about 8% of the add-on to cut the worst week by 43%.** Tremor is for reshaping the tail, not raising the average. Volume lost to the add-on scales A and B alike. The fee rule raises funding equal to at most 49% of measured loss, an upper bound that assumes no lost volume.
+**Tremor is built for the tail.** It cuts the worst week by **48%** against today and by **43%** against an equal-cost dynamic fee, because the money arrives in the weeks that hurt instead of being spread evenly.
 
 ## Security and review
 
-Not audited. An external review on 6 Nov 2026 found two correctness bugs; both are fixed, tested and redeployed:
-- **Stale quotes:** the market could price from stored data while a newer Chainlink round was public, and after the window ended. Quotes now revert (`Stale`, `TooLate`) until `checkpoint` catches up ([`#L342-L344`](contracts/src/VarianceMarket.sol#L342-L344)); the hook checkpoints a running window before buying.
-- **Drip griefing:** anyone could restart the payout drip with an empty claim. Each window the hook bought cover in can now be claimed once ([`TremorHook.sol#L418`](contracts/src/hook/TremorHook.sol#L418)).
+Two external correctness reviews, two red-team rounds and an independent pricing model, all on 6–7 Nov 2026. Every finding is fixed and has a regression test.
 
-A second correctness review the same day found eight more issues. All are fixed with regression tests, in the contracts on `main`, the mainnet-fork deployment and the current Sepolia deployment:
-- **Oracle gaps and phase changes:** an unreadable round below the latest one now counts as a gap, not the end of the feed, so the market won't settle on partial variance ([`caughtUp`](contracts/src/VarianceMarket.sol), `OracleGap`). If the Chainlink proxy changes phase, or a gap never recovers, `settleFallback` settles the window 7 days after normal settlement at the forward variance fixed at creation. Claims stay redeemable, and nobody chooses the outcome after seeing prices.
-- **Fee capacity:** `handleHookFees` buys only the largest amount the Aqua strategy can fill and keeps the rest (`CoverDeferred`). An oversized balance no longer reverts it (fork test U1b).
-- **Skipped epochs:** each premium expires on the absolute epoch schedule. If reports skip a whole epoch, the stale measurement sets 0.
-- **Conversion feed:** the UNI to WETH guard checks `updatedAt`, `answeredInRound`, a 25 h maximum age and `decimals`; if the feed fails, the hook skips conversion.
-- **Report authentication:** the Sepolia receiver takes reports from the CRE simulation forwarder (`MockKeystoneForwarder`), which relays anyone's report with placeholder metadata, so a workflow ID or author check can't authenticate it. New deployments therefore restrict delivery to our CRE signer (`reportSubmitter`). With a real KeystoneForwarder, set the expected workflow ID and author instead.
-- **CRE live mode:** spans end at head minus 64 confirmations, the depth at which Ethereum blocks are finalized, so a report almost never covers blocks that later reorg (still 15 EVM reads: 11 log chunks plus a head read). Binance candles must be contiguous 60-second rows with positive prices, or the run fails without reporting.
-- **Vault lifecycle:** `settle` docks a still-shipped strategy first, and a strategy can't be docked twice. `collateralView` now reports locked WETH and sets issued.
+**Red team** ([`test/redteam`](contracts/test/redteam): 25 attacks on a mainnet fork with the real Aqua and v4 contracts, 4 pricing fuzz tests). Every attack now loses money:
+- **Sandwich of the hook's cover buy.** The hook buys at most `2 × H_MIN × S / KAPPA` LONG per call (20 LONG at our parameters), the size at which an attacker's skew gain can't cover the round-trip spread ([`CoverSandwich.t.sol`](contracts/test/redteam/CoverSandwich.t.sol)).
+- **Oracle latency.** The market takes the hook's start-of-block pool price as a reference and pauses quotes (`PriceMoved`) while it is more than 2% from the last Chainlink round. The 5% and 10% attacks are blocked, and the largest move the guard admits loses about 0.27 WETH even 10 minutes before the window ends.
+- **JIT liquidity.** OpenZeppelin's `LiquidityPenaltyHook`: liquidity removed within 100 blocks of being added forfeits its fees, donations included, to the LPs who stayed. A JIT position with 9× the pool's liquidity keeps nothing of a 1 WETH payout; an LP that stays keeps its full 90% share ([`Hardening.t.sol`](contracts/test/redteam/Hardening.t.sol)).
+- **Replay build.** The fork-demo build that quotes historical weeks refuses to deploy anywhere but a local mainnet fork.
+- **Admin surface.** The hook's receiver, vault, router and pool are set once (`AlreadySet`); anyone can roll cover to the next window (`rotateCover`); Sepolia deployments renounce the receiver after setup.
+- **Writer vault.** Anyone deposits WETH for pro-rata shares and redeems between windows; the operator runs the strategy with no withdraw function, and a first-depositor inflation attack loses money.
+- **Also attacked, all unprofitable:** skew manipulation through `Aqua.push`, complete-set and round-trip arbitrage (3 fuzz properties × 256 runs), rounding and dust, exceeding inventory, and sandwiching the UNI→WETH conversion (asserted under 10 bps).
 
-**Red team (6–7 Nov 2026).** We asked how we would exploit it and attacked it ourselves ([`test/redteam`](contracts/test/redteam): 25 tests on a mainnet fork with the real Aqua and v4 contracts, 4 local pricing fuzz tests). The second round fixed what an outside review (Codex) found still open after the first:
-- **Sandwich of the hook's cover buy (fixed).** `handleHookFees` is permissionless, so one transaction could buy LONG, trigger the hook's large buy (which lifts the price through inventory skew) and sell back: up to +5.66 WETH in the PoC. The hook now buys at most `2 × H_MIN × S / KAPPA` LONG per call (20 LONG at our parameters), the size at which the skew gain can't cover the round-trip spread. Every attempt in [`CoverSandwich.t.sol`](contracts/test/redteam/CoverSandwich.t.sol) now loses money; leftover fees wait for the next hourly call.
-- **The replay build sells known outcomes (fixed).** The fork-demo build quotes past weeks, so buying a past crash week's LONG at the forecast price is pure profit (+37 WETH in the PoC). Its constructor now refuses any chain except a local mainnet fork.
-- **Oracle latency (fixed).** Someone who sees a big move before the Chainlink round lands could buy at the old price and sell after it: profitable for a single-round move above about 2.9% near the end of a week (6.6% at the start). The market now takes a price reference, the hook's pool price at the start of the current block (arbitrage moves the pool before the round lands; a trade in the same block can't move it), and quotes pause (`PriceMoved`) while it is more than 2% from the last round. The 5% and 10% attacks are now blocked, and the largest move the guard lets through (1.9%) loses about 0.27 WETH even 10 minutes before the window ends. What's left is a bet, not a riskless trade: someone can buy inside the 2% band hoping the move continues. The guard needs a pool on the settlement pair, so it is off on Sepolia (ETH/USD settlement, tUNI pool).
-- **JIT liquidity taking the payout (fixed).** The payout is donated to in-range liquidity, so someone could add liquidity, call `drip` and remove it in one block. The hook now includes OpenZeppelin's `LiquidityPenaltyHook`: liquidity removed within 100 blocks of being added forfeits its fees, donations included, to the LPs who stayed. A JIT position with 9× the pool's liquidity now keeps −1 wei of a 1 WETH payout; one that stays 100 blocks keeps its 90% share. LP fees withheld this way are never spent on cover ([`Hardening.t.sol`](contracts/test/redteam/Hardening.t.sol)).
-- **Admin powers (reduced).** The hook's receiver, vault, router and pool are set once and can't be changed (`AlreadySet`), so the owner can't redirect fees; its only remaining setting is the drip length, capped at a week. Once a cover window ends, anyone can move cover to the vault's next open window (`rotateCover`), so fees never wait on an admin. New Sepolia deployments renounce the receiver's ownership after setup, freezing the report trust root.
-- **Writers, not one owner's money (new).** The vault issues shares: anyone deposits WETH and redeems pro rata, only between windows, when all assets are plain WETH. The operator opens and settles windows with the pooled WETH but has no withdraw function. A first-depositor inflation attack loses money (OpenZeppelin-style virtual shares).
-- Tried and failed: skew manipulation through `Aqua.push`, complete-set and round-trip arbitrage (3 fuzz properties × 256 runs), rounding and dust, exceeding inventory, and sandwiching the UNI→WETH conversion (about 5 bps at best, asserted under 10 bps).
+**Correctness reviews.** Stale quotes (quotes revert `Stale`/`TooLate` until `checkpoint` catches up), drip griefing (each window claims once), oracle gaps and phase changes (never settles on partial data; `settleFallback` settles at the forward variance fixed at creation), fee capacity (`CoverDeferred` instead of reverting), skipped epochs (premiums expire on the absolute schedule), conversion-feed checks (`updatedAt`, `answeredInRound`, 25 h maximum age, `decimals`), CRE live mode (spans end 64 confirmations deep; candle gaps abort the run) and vault lifecycle (`settle` docks first; no double dock).
 
-Earlier, the independent Python pricing model caught five rounding and fill bugs before the contracts shipped; its 10,508 vectors now gate every change.
+**Pricing model.** An independent exact-rational Python model caught five rounding and fill bugs before the contracts shipped; its **10,508 vectors** gate every change.
 
-## Limits
+## Scope of this build
 
-- **Pool-level data.** Individual LPs, especially concentrated ones, can do better or worse than the pool total.
-- **Recipients.** `donate` pays the liquidity in range when the payout drips, which may include liquidity that arrived after the loss.
-- **Prototype pricing.** A LONG costs about 0.20 and sells for about 0.10 of a 1.0 maximum payout; over the sample LONG returns 91% of its price, which pays SHORT writers for supplying cover.
-- **Oracle sampling.** The UNI/ETH feed updates about 4 times a day, so windows are at least 7 days; Chainlink-sampled volatility runs about 0.70× the Binance-sampled figure.
-- **Historical replay.** The Oct and Feb 2025 weeks are replayed on a mainnet fork from real Chainlink history; the replay build prices them before ingesting their rounds on purpose.
-- **Liquidity that stays.** The penalty stops liquidity that comes and goes within 100 blocks, but an LP that joins shortly before a payout and stays 100 blocks still gets a share, even if it wasn't there during the loss.
-- **Operator trust.** Vault writers trust the operator's choice of windows to open (their parameters set the cover price); a governed or timelocked operator is the next step.
-- **Sepolia runs the earlier build.** The 7 Nov fixes (oracle-latency guard, JIT penalty, one-time wiring, writer shares) are on `main` and tested on a mainnet fork; the Sepolia contracts are from commit `2bf868c`.
-- **New pool.** Tremor runs on a new v4 pool, so LPs would have to move to it.
-- **CRE on Sepolia runs through `cre workflow simulate`.** Reports reach the receiver through the simulation forwarder, so delivery is restricted to our CRE signer; a workflow deployed on the DON would bind its workflow ID and owner instead.
+- **Chainlink CRE** runs through `cre workflow simulate`, writing real reports on Sepolia and on a mainnet fork. A DON deployment binds the workflow ID and owner on the same receiver.
+- **Historical weeks** (October and February 2025) are replayed on a mainnet fork from real Chainlink history.
+- **Sepolia** settles on ETH/USD with a test UNI pool, as described in [Live on Sepolia](#live-on-sepolia).
 
 ## Repository map
 
@@ -265,11 +261,11 @@ contracts/src/
   aqua/TremorVault.sol          writes cover, ships the Aqua strategy
   hook/TremorHook.sol           v4 hook fee → cover → drip donate
   hook/TremorReceiver.sol       CRE reports → weekly fee
-contracts/test/                 unit, invariant, vector and mainnet-fork tests
+contracts/test/                 unit, invariant, vector, mainnet-fork, red-team and price-shock scenario tests
 cre/tremor-lvr/                 Chainlink CRE workflow (TypeScript)
 data/                           104-week measurement, backtest, benchmark
-web/                            Next.js app (landing, Overview, Trade, Data, Contracts)
-demo/                           fork deploy + end-to-end demo, Sepolia deploy
+web/                            Next.js app (landing, Overview, Trade, Stress test, Data, Contracts)
+demo/                           fork deploy + end-to-end demo, Sepolia deploy + end-to-end driver
 docs/                           spec, plan, sponsor source checks, video script
 ```
 
