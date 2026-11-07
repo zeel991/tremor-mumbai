@@ -118,7 +118,7 @@ export function ContractsView() {
                     <td className="px-3 py-2.5 text-right">{fmtUsdCompact(Number(r.volume) / 1e18)}</td>
                     <td className="px-3 py-2.5 text-right">{fmtUsdCompact(Number(r.lvr) / 1e18)}</td>
                     <td className="px-3 py-2.5 text-right">{r.volume > 0n ? `${((Number(r.lvr) / Number(r.volume)) * 100).toFixed(2)}%` : "—"}</td>
-                    <td className="px-5 py-2.5 text-right">{r.closed ? pipsToPct(r.closed.pips) : <span className="text-ink-3">Open</span>}</td>
+                    <td className="px-5 py-2.5 text-right">{r.closed ? pipsToPct(r.closed.pips) : logs.data?.closed.ok ? <span className="text-ink-3">Open</span> : <span className="text-ink-3">…</span>}</td>
                   </tr>
                 ))}
               </tbody>

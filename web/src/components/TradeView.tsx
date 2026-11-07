@@ -87,7 +87,7 @@ export function TradeView() {
   const [side, setSide] = useState<SideName>("LONG");
   const [dir, setDir] = useState<Dir>("buy");
   // Sepolia pays 0.001 WETH per pair (1,000x smaller than the fork), so start with a size that fills there.
-  const [amountStr, setAmountStr] = useState(IS_FORK ? "0.1" : "0.002");
+  const [amountStr, setAmountStr] = useState(IS_FORK ? "0.1" : "0.0005");
   const [txs, setTxs] = useState<TxEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const txSeq = useRef(0);
@@ -103,7 +103,8 @@ export function TradeView() {
 
   const amount = useDebounced(parseAmount(amountStr), 300);
   const order = win.data?.order.ok ? win.data.order : undefined;
-  const closed = !!w?.finalized || (win.data !== undefined && !win.data.order.ok);
+  // Trading ends at t1 (the market's quote reverts TooLate), even before anyone settles the week.
+  const closed = !!w?.finalized || (win.data !== undefined && (!win.data.order.ok || (!!w && win.data.now >= w.t1)));
 
   const quote = useQuery({
     queryKey: ["trade-quote", id.toString(), tokenIn, tokenOut, amount?.toString(), order?.encoded, address],

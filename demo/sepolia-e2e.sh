@@ -8,6 +8,7 @@
 #   swaps    N round-trip swaps (default 3) of 0.0005 WETH; they pay the hook fee once it is set
 #   cover    hook.handleHookFees(): redeem fee claims, convert tUNI to WETH, buy LONG on Aqua through 0x22
 #   settle   checkpoint every Chainlink ETH/USD round, finalize the window, claim the payout, drip it to LPs
+#   keep     during a live window, checkpoint each new Chainlink round so quotes never pause (runs until t1)
 #
 # Typical order: arb, (wait ~15 min) cre, (after the epoch boundary + ~15 min) cre, swaps, cover, (after t1 + 1 h) settle
 set -euo pipefail
@@ -92,6 +93,18 @@ settle)
   sleep 30
   send "hook.drip (donate to LPs)" "$HOOK" "drip()" || true
   send "vault.settle" "$VAULT" "settle(uint256)" "$ID"
+  ;;
+keep)
+  # The live market pauses quotes until each new Chainlink round is checkpointed (stale-quote guard). Sepolia's
+  # ETH/USD feed updates about hourly, so during a demo window keep it caught up: check every minute until t1.
+  T1=$(call "$MARKET" "window(uint256)((uint64,uint64,uint256,uint256,uint256,uint16,uint80,uint256,uint64,uint256,uint256,bool,uint256,address,address))" "$ID" | tr -d '()' | cut -d, -f2 | awk '{print $1}')
+  while [ "$(cast block --rpc-url "$RPC" -f timestamp)" -lt "$T1" ]; do
+    if [ "$(call "$MARKET" 'caughtUp(uint256)(bool)' "$ID")" = "false" ]; then
+      echo "$(date '+%H:%M') new Chainlink round"; send "market.checkpoint" "$MARKET" "checkpoint(uint256,uint256)" "$ID" 64 || true
+    fi
+    sleep 60
+  done
+  echo "window $ID reached t1; keeper stops"
   ;;
 *) echo "unknown step $1"; exit 1 ;;
 esac
