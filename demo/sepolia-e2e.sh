@@ -24,17 +24,24 @@ OP=$(j .poolOperator); WETH=$(j .weth); TUNI=$(j .uni); FEED=$(j .uniEthFeed); P
 ID=$(j .windows.live); POOLID=$(j .poolId)
 KEY="($(j .poolKey.currency0),$(j .poolKey.currency1),$(j .poolKey.fee),$(j .poolKey.tickSpacing),$(j .poolKey.hooks))"
 ME=$(cast wallet address --private-key "$CRE_ETH_PRIVATE_KEY")
-AUTH=(--private-key "$CRE_ETH_PRIVATE_KEY" --rpc-url "$RPC")
+# Sepolia gas is ~20 wei: pay a fixed low price (cast's default tip is ~0.075 gwei) and a fixed limit
+# (gas estimation can trip over the hook's afterSwap even when the call itself succeeds).
+AUTH=(--private-key "$CRE_ETH_PRIVATE_KEY" --rpc-url "$RPC" --gas-price 1000 --priority-gas-price 100 --gas-limit 2000000)
 redact() { sed "s/${CRE_ETH_PRIVATE_KEY#0x}/<key>/g"; }
 
 send() { # send <label> <to> <sig> [args...]
   local label=$1; shift
-  local out
-  if out=$(cast send "$@" "${AUTH[@]}" --json 2>&1); then
-    echo "  $label: $(echo "$out" | jq -r '.status + " " + .transactionHash')"
-  else
-    echo "  $label FAILED: $(echo "$out" | redact | tail -3)"; return 1
-  fi
+  local out try
+  for try in 1 2 3 4; do
+    if out=$(cast send "$@" "${AUTH[@]}" --json 2>&1); then
+      echo "  $label: $(echo "$out" | jq -r '(if .status == "0x1" then "ok" else "REVERTED" end) + "  https://sepolia.etherscan.io/tx/" + .transactionHash')"
+      sleep 3; return 0
+    fi
+    # the public RPC is load-balanced: a node that lags a block reports a stale nonce; wait and resend
+    echo "$out" | grep -qE "nonce too low|replacement transaction underpriced|already known" || break
+    sleep 6
+  done
+  echo "  $label FAILED: $(echo "$out" | redact | tail -3)"; return 1
 }
 call() { cast call "$@" --rpc-url "$RPC"; }
 binance_price() { # WETH per UNI, WAD, from Binance UNIUSDT / ETHUSDT
